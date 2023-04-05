@@ -4,5 +4,4 @@
 *.jpg
 *.pyc
 *.log
-dataset/
-weights/*
+weights
