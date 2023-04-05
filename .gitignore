@@ -2,3 +2,5 @@
 1024_data_with_evaluation6_for_affine_network.zip
 *.csv
 *.jpg
+*.pyc
+*.log

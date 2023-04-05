@@ -171,7 +171,7 @@ if dataset_cfg.dataset.value == 'ANHIR':
 	subset = dataset_cfg.subset.value
 	print(subset)
 	sys.stdout.flush()
-	dataset, groups, groups_train, groups_val = LoadANHIR(args.prep, subset)
+	dataset, groups, groups_train, groups_val = LoadANHIR("1024_data_with_evaluation6_for_affine_network", subset)
 	train_pairs = [(f1, f2) for group in groups_train.values() for f1 in group for f2 in group if f1 is not f2]
 	random.shuffle(train_pairs)
 	eval_pairs = [(f1[0], f2[0], f1[1], f2[1]) for group in groups_val.values() for f1 in group for f2 in group if f1 is not f2]
@@ -349,6 +349,8 @@ maxkpval = 100
 while True:
 	if args.valid:
 		raw, eva, eva_mask, kpval = validate()
+		print("Here is the validation result:")
+		print("raw: ", raw, "eva: ", eva, "eva_mask: ", eva_mask, "kpval: ", kpval)
 		log.log('steps= {} raw= {} kp_mean= {} kp_mean_median= {} eva_kp= {}'.format(steps, raw, eva, eva_mask, kpval))
 		sys.exit(0)
 	steps += 1

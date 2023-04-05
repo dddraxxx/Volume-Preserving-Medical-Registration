@@ -10,7 +10,7 @@ from numpy import *
 import skimage
 import random
 
-def LoadANHIR(prep_name, subsets = [""], data_path = r"/home/gelin/SFG/S_SFG/datasets/"):
+def LoadANHIR(prep_name, subsets = [""], data_path = r"/home/hynx/regis/SFG/dataset"):
     print('data_path', data_path)
     ##
     #randomratio = 0.75
@@ -21,7 +21,7 @@ def LoadANHIR(prep_name, subsets = [""], data_path = r"/home/gelin/SFG/S_SFG/dat
     # prep_name1 = prep_name + '_affine_result_landmark_eva6'
     # prep_name2 = prep_name + '_affine_result_eva6_median_norm_with_siftkp'
 
-    prep_name1 = prep_name + 'after_affine'
+    prep_name1 = prep_name #+ 'after_affine'
     prep_name2 = prep_name + '_kp_after_affine'
     #prep_name2 = 'oriresult_' + prep_name + '_after_manual_del_micekidney_csv'
 
@@ -34,6 +34,18 @@ def LoadANHIR(prep_name, subsets = [""], data_path = r"/home/gelin/SFG/S_SFG/dat
     val_groups = {}
     train_pairs = []
     eval_pairs = []
+
+    # write csv
+    from pathlib import Path as pa
+    csv_path = os.path.join(data_path, "matrix_sequence_manual_validation.csv")
+    nums = range(10)
+    sub = ["training"] + ["evaluation"] * 9
+    rows = "\n".join(f"{i},,,,,{sub[i]}" for i in nums)
+    with open(csv_path, "w") as f:
+        f.write("id,group,patient,side,view,subset\n")
+        f.write(rows)    
+    
+    reader = pa(data_path).glob('*.csv')
     with open(os.path.join(data_path, "matrix_sequence_manual_validation.csv"), newline="") as f:
         reader = csv.reader(f)
         for row in reader:
