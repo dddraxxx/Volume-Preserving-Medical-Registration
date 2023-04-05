@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 1024_mask.zip
 1024_data_with_evaluation6_for_affine_network.zip
 *.csv
@@ -8,6 +9,8 @@
 weights
 dataset/*
 =======
+=======
+>>>>>>> 757c4481b759e70495ed876e386bd79cc1b8773c
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -138,6 +141,7 @@ dmypy.json
 # Pyre type checker
 .pyre/
 <<<<<<< HEAD
+<<<<<<< HEAD
 >>>>>>> 757c448 (Initial commit)
 =======
 
@@ -149,3 +153,5 @@ dmypy.json
 weights
 dataset/*
 >>>>>>> 5e19329 (update gitignore)
+=======
+>>>>>>> 757c4481b759e70495ed876e386bd79cc1b8773c
