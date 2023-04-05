@@ -137,4 +137,15 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+<<<<<<< HEAD
 >>>>>>> 757c448 (Initial commit)
+=======
+
+1024_mask.zip
+1024_data_with_evaluation6_for_affine_network.zip
+*.csv
+*.jpg
+*.log
+weights
+dataset/*
+>>>>>>> 5e19329 (update gitignore)
