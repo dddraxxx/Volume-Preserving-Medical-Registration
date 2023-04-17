@@ -166,12 +166,14 @@ validation_datasets = {}
 samples = 32 if args.debug else -1
 
 if dataset_cfg.dataset.value == 'ANHIR':
+	# load the ANHIR dataset
 	print('loading ANHIR dataset...')
 	t0 = default_timer()
 	subset = dataset_cfg.subset.value
 	print(subset)
 	sys.stdout.flush()
-	dataset, groups, groups_train, groups_val = LoadANHIR("1024_data_with_evaluation6_for_affine_network", subset)
+	dataset, groups, groups_train, groups_val = LoadANHIR("512", subset)
+	# create the train and eval data
 	train_pairs = [(f1, f2) for group in groups_train.values() for f1 in group for f2 in group if f1 is not f2]
 	random.shuffle(train_pairs)
 	eval_pairs = [(f1[0], f2[0], f1[1], f2[1]) for group in groups_val.values() for f1 in group for f2 in group if f1 is not f2]

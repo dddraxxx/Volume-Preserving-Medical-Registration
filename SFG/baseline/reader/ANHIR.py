@@ -11,31 +11,21 @@ import skimage
 import random
 
 def LoadANHIR(prep_name, subsets = [""], data_path = r"/home/hynx/regis/SFG/dataset"):
+    # Print data path
     print('data_path', data_path)
-    ##
-    #randomratio = 0.75
-    #randomselect_csv_output = r'./visualization/random_select_landmark/'+str(int(randomratio*100))+'percent'
-    ##
-    #prep_name1 = prep_name+'_affine_result_landmark'
-    #prep_name1 = prep_name+'_affine_result_median_norm_with_landmark'
-    # prep_name1 = prep_name + '_affine_result_landmark_eva6'
-    # prep_name2 = prep_name + '_affine_result_eva6_median_norm_with_siftkp'
 
-    prep_name1 = prep_name #+ 'after_affine'
-    prep_name2 = prep_name + '_kp_after_affine'
-    #prep_name2 = 'oriresult_' + prep_name + '_after_manual_del_micekidney_csv'
-
+    # Define prep names
+    prep_name1 = prep_name + 'after_affine'
+    # Define prep paths
     prep_path1 = os.path.join(data_path, prep_name1)
-    prep_path2 = os.path.join(data_path, prep_name2)
-    prep_path = prep_path2
+
+    # Define dataset and groups
     dataset = {}
     groups = {}
     train_groups = {}
     val_groups = {}
-    train_pairs = []
-    eval_pairs = []
 
-    # write csv
+    # Write csv
     from pathlib import Path as pa
     csv_path = os.path.join(data_path, "matrix_sequence_manual_validation.csv")
     nums = range(10)
@@ -45,16 +35,23 @@ def LoadANHIR(prep_name, subsets = [""], data_path = r"/home/hynx/regis/SFG/data
         f.write("id,group,patient,side,view,subset\n")
         f.write(rows)    
     
+    # Read csv and load images into training and evaluation loaders according to csv
     reader = pa(data_path).glob('*.csv')
     with open(os.path.join(data_path, "matrix_sequence_manual_validation.csv"), newline="") as f:
         reader = csv.reader(f)
+
+        # Iterate through rows
         for row in reader:
             if reader.line_num == 1:
                 continue
             num = int(row[0])
+
+            # If row is for training
             if row[5] == 'training':
                 fimg = str(num)+'_1.jpg'
                 flmk = str(num)+'_1.csv'
+
+                # If image not in dataset, add it
                 if fimg not in dataset:
                     group = fimg.split("_")[0]
                     if group not in groups:
@@ -66,13 +63,14 @@ def LoadANHIR(prep_name, subsets = [""], data_path = r"/home/hynx/regis/SFG/data
                     im_temp2[0] = im_temp1
                     im_temp2[1] = im_temp1
                     im_temp2[2] = im_temp1
-                    #dataset[fimg] = np.expand_dims(io.imread(os.path.join(prep_path, fimg), as_gray=True), axis=0)
                     dataset[fimg] = im_temp2
                     groups[group].append(fimg)
                     train_groups[group].append(fimg)
 
                 fimg = str(num) + '_2.jpg'
                 flmk = str(num) + '_2.csv'
+
+                # If image not in dataset, add it
                 if fimg not in dataset:
                     group = fimg.split("_")[0]
                     if group not in groups:
@@ -84,10 +82,11 @@ def LoadANHIR(prep_name, subsets = [""], data_path = r"/home/hynx/regis/SFG/data
                     im_temp2[0] = im_temp1
                     im_temp2[1] = im_temp1
                     im_temp2[2] = im_temp1
-                    # dataset[fimg] = np.expand_dims(io.imread(os.path.join(prep_path, fimg), as_gray=True), axis=0)
                     dataset[fimg] = im_temp2
                     groups[group].append(fimg)
                     train_groups[group].append(fimg)
+
+            # If row is for evaluation
             elif row[5] == 'evaluation':
                 fimg = str(num)+'_1.jpg'
                 flmk = str(num)+'_1.csv'
