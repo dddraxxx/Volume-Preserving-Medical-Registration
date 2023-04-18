@@ -1,3 +1,4 @@
+#%% import packages
 import os
 import sys
 
@@ -26,6 +27,8 @@ from reader import sintel, kitti, hd1k, things3d
 from reader.ANHIR import LoadANHIR, ANHIRPredict
 import cv2
 
+#%% parse arguments
+
 model_parser = argparse.ArgumentParser(add_help=False)
 training_parser = argparse.ArgumentParser(add_help=False)
 training_parser.add_argument('--batch', type=int, default=8, help='minibatch size of samples per device')
@@ -40,7 +43,7 @@ parser.add_argument('-s', '--shard', type=int, default=1, help='')
 parser.add_argument('-w', '--weight', type=int, default="", help='')
 
 parser.add_argument('-g', '--gpu_device', type=str, default='0', help='Specify gpu device(s)')
-parser.add_argument('-c', '--checkpoint', type=str, default=None, 
+parser.add_argument('-c', '--checkpoint', type=str, default=None,
 	help='model checkpoint to load; by default, the latest one.'
 	'You can use checkpoint:steps to load to a specific steps')
 parser.add_argument('--clear_steps', action='store_true')
@@ -58,6 +61,9 @@ args = parser.parse_args()
 ctx = [mx.cpu()] if args.gpu_device == '' else [mx.gpu(gpu_id) for gpu_id in map(int, args.gpu_device.split(','))]
 infer_resize = [int(s) for s in args.resize.split(',')] if args.resize else None
 
+#%%
+## configure networks, data loaders, and logging
+
 import network.config
 # load network configuration
 with open(os.path.join(repoRoot, 'network', 'config', args.config)) as f:
@@ -67,6 +73,7 @@ with open(os.path.join(repoRoot, 'network', 'config', args.dataset_cfg)) as f:
 	dataset_cfg = network.config.Reader(yaml.safe_load(f))
 validation_steps = dataset_cfg.validation_steps.value
 checkpoint_steps = dataset_cfg.checkpoint_steps.value
+max_steps = config.optimizer.learning_rate.value[-1][0]
 
 # create directories
 def mkdir(path):
@@ -88,7 +95,7 @@ if args.checkpoint is not None:
 	else:
 		prefix = args.checkpoint
 		steps = None
-	log_file, run_id = path.find_log(prefix)	
+	log_file, run_id = path.find_log(prefix)
 	if steps is None:
 		checkpoint, steps = path.find_checkpoints(run_id)[-1]
 	else:
@@ -114,7 +121,7 @@ if args.checkpoint is not None:
 # generate id
 if args.checkpoint is None or args.clear_steps:
 	uid = (socket.gethostname() + logger.FileLog._localtime().strftime('%b%d-%H%M') + args.gpu_device)
-	tag = hashlib.sha224(uid.encode()).hexdigest()[:3] 
+	tag = hashlib.sha224(uid.encode()).hexdigest()[:3]
 	run_id = tag + logger.FileLog._localtime().strftime('%b%d-%H%M')
 
 # initiate
@@ -145,15 +152,6 @@ if args.checkpoint is not None:
 		pipe.trainer.load_states(checkpoint.replace('params', 'states'))
 
 
-# ======== If to do prediction ========
-
-if args.predict:
-	import predict
-	checkpoint_name = os.path.basename(checkpoint).replace('.params', '')
-	predict.predict(pipe, os.path.join(repoRoot, 'flows', checkpoint_name), batch_size=args.batch, resize = infer_resize)
-	sys.exit(0)
-
-
 # ======== If to do validation ========
 def validate():
     if dataset_cfg.dataset.value == "ANHIR":
@@ -161,7 +159,7 @@ def validate():
 
 # ======== If to do training ========
 
-# load training/validation datasets
+#%% load training/validation datasets
 validation_datasets = {}
 samples = 32 if args.debug else -1
 
@@ -186,7 +184,18 @@ else:
 print('Using {}s'.format(default_timer() - t0))
 sys.stdout.flush()
 
+# ======== If to do prediction ========
 
+if args.predict:
+	import predict
+	checkpoint_name = os.path.basename(checkpoint).replace('.params', '')
+	eval_dataset = [{
+		"image_0": dataset[groups_val[i][0][0]].transpose(1, 2, 0),
+		"image_1": dataset[groups_val[i][1][0]].transpose(1, 2, 0),
+		"fid": i
+	}	for i in groups_val]
+	predict.predict(pipe, eval_dataset, os.path.join(repoRoot, 'output', checkpoint_name), batch_size=args.batch, resize = infer_resize)
+	sys.exit(0)
 
 print('data read, train {} val {}'.format(trainSize, validationSize))
 sys.stdout.flush()
@@ -211,13 +220,13 @@ if target_shape is None:
 print(raw_shape, orig_shape, target_shape)
 sys.stdout.flush()
 
-# create log file
+#%% create log file
 log = logger.FileLog(os.path.join(repoRoot, 'logs', 'debug' if args.debug else '', '{}.log'.format(run_id)))
 log.log('start={}, train={}, val={}, host={}, batch={}'.format(steps, trainSize, validationSize, socket.gethostname(), batch_size))
 information = ', '.join(['{}={}'.format(k, repr(args.__dict__[k])) for k in args.__dict__])
 log.log(information)
 
-# implement data augmentation
+#%% implement data augmentation
 import augmentation
 
 aug_func = augmentation.Augmentation
@@ -254,18 +263,18 @@ aug.hybridize()
 
 aug_func = augmentation.ColorAugmentation
 if dataset_cfg.dataset.value == 'sintel':
-	color_aug = aug_func(contrast_range=(-0.4, 0.8), brightness_sigma=0.1, channel_range=(0.8, 1.4), batch_size=batch_size_card, 
+	color_aug = aug_func(contrast_range=(-0.4, 0.8), brightness_sigma=0.1, channel_range=(0.8, 1.4), batch_size=batch_size_card,
 		shape=target_shape, noise_range=(0, 0), saturation=0.5, hue=0.5, eigen_aug = False)
 elif dataset_cfg.dataset.value == 'kitti':
-	color_aug = aug_func(contrast_range=(-0.2, 0.4), brightness_sigma=0.05, channel_range=(0.9, 1.2), batch_size=batch_size_card, 
+	color_aug = aug_func(contrast_range=(-0.2, 0.4), brightness_sigma=0.05, channel_range=(0.9, 1.2), batch_size=batch_size_card,
 		shape=target_shape, noise_range=(0, 0.02), saturation=0.25, hue=0.1, gamma_range=(-0.5, 0.5), eigen_aug = False)
 else:
-	color_aug = aug_func(contrast_range=(-0.4, 0.8), brightness_sigma=0.1, channel_range=(0.8, 1.4), batch_size=batch_size_card, 
+	color_aug = aug_func(contrast_range=(-0.4, 0.8), brightness_sigma=0.1, channel_range=(0.8, 1.4), batch_size=batch_size_card,
 		shape=target_shape, noise_range=(0, 0.04), saturation=0.5, hue=0.5, eigen_aug = False)
 color_aug.hybridize()
 
 def index_generator(n):
-	indices = np.arange(0, n, dtype=np.int)
+	indices = np.arange(0, n, dtype=int)
 	while True:
 		np.random.shuffle(indices)
 		yield from indices
@@ -301,7 +310,7 @@ class DictMovingAverage:
 	@property
 	def average(self):
 		return dict([(key, self.sum[key] / self.weight[key]) for key in self.sum])
-	
+
 loading_time = MovingAverage()
 total_time = MovingAverage()
 train_avg = DictMovingAverage()
@@ -345,6 +354,8 @@ start_daemon(Thread(target=remove_file, args=(remove_queue,)))
 for i in range(2):
     start_daemon(Thread(target=batch_samples, args=(data_queue, batch_queue, batch_size)))
 
+#%% training/ evaluation
+
 t1 = None
 checkpoints = []
 maxkpval = 100
@@ -356,6 +367,9 @@ while True:
 		log.log('steps= {} raw= {} kp_mean= {} kp_mean_median= {} eva_kp= {}'.format(steps, raw, eva, eva_mask, kpval))
 		sys.exit(0)
 	steps += 1
+	if steps%100==0:
+		print("training step: {}/{}".format(steps, max_steps))
+
 	if not pipe.set_learning_rate(steps):
 		sys.exit(0)
 	batch = []

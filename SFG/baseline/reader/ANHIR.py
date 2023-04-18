@@ -27,14 +27,20 @@ def LoadANHIR(prep_name, subsets = [""], data_path = r"/home/hynx/regis/SFG/data
 
     # Write csv
     from pathlib import Path as pa
-    csv_path = os.path.join(data_path, "matrix_sequence_manual_validation.csv")
-    nums = range(10)
-    sub = ["training"] + ["evaluation"] * 9
-    rows = "\n".join(f"{i},,,,,{sub[i]}" for i in nums)
-    with open(csv_path, "w") as f:
-        f.write("id,group,patient,side,view,subset\n")
-        f.write(rows)    
-    
+    new_csv = False
+    if new_csv:
+        print("Writing new csv for train/val split\n")
+        csv_path = os.path.join(data_path, "matrix_sequence_manual_validation.csv")
+        nums = range(len(list(pa(prep_path1).glob('*_1.csv'))))
+        train2eval = 0.8
+        # pick 80% of the training images for training and 20% for evaluation, in nums
+        train_idx = random.sample(range(2, len(nums)), int(len(nums) * train2eval))
+        sub = ["training" if i in train_idx else "evaluation" for i in range(len(nums))]
+        rows = "\n".join(f"{i},,,,,{sub[i]}" for i in nums)
+        with open(csv_path, "w") as f:
+            f.write("id,group,patient,side,view,subset\n")
+            f.write(rows)
+
     # Read csv and load images into training and evaluation loaders according to csv
     reader = pa(data_path).glob('*.csv')
     with open(os.path.join(data_path, "matrix_sequence_manual_validation.csv"), newline="") as f:

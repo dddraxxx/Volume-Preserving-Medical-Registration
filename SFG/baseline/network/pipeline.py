@@ -93,7 +93,7 @@ class PipelineFlownet:
 			return False
 		self.trainer.set_learning_rate(lr)
 		self._lr = lr
-		return True	
+		return True
 
 	@property
 	def lr(self):
@@ -102,7 +102,7 @@ class PipelineFlownet:
 	def loss(self, pred, occ_masks, labels, masks):
 		loss = self.multiscale_epe(labels, masks, *pred)
 		return loss
-	
+
 	def centralize(self, img1, img2):
 		rgb_mean = nd.concat(img1, img2, dim = 2).mean(axis = (2, 3)).reshape((-2, 1, 1))
 		return img1 - rgb_mean, img2 - rgb_mean, rgb_mean
@@ -255,6 +255,23 @@ class PipelineFlownet:
 		return np.mean(rawmean), np.mean(distmean), np.median(distmean), np.mean(distmean)#np.median(results_median)
 
 
+	def do_batch(self, img1, img2, resize = None):
+		if resize:
+			img1 = nd.contrib.BilinearResize2D(img1, height=resize[0], width=resize[1])
+			img2 = nd.contrib.BilinearResize2D(img2, height=resize[0], width=resize[1])
+		shape = img1.shape
+		img1, img2, rgb_mean = self.centralize(img1, img2)
+		pred, occ_masks, warpeds = self.network(img1, img2)
+
+		flow = self.upsampler(pred[-1])
+		if shape[2] != flow.shape[2] or shape[3] != flow.shape[3]:
+			flow = nd.contrib.BilinearResize2D(flow, height=shape[2], width=shape[3]) * nd.array([shape[d] / flow.shape[d] for d in (2, 3)], ctx=flow.context).reshape((1, 2, 1, 1))
+		warp = self.reconstruction(img2, flow)
+		occ_masks = nd.stack(*occ_masks, axis=0)
+		# warpeds = nd.stack(*warpeds, axis=0)
+
+		return flow, occ_masks[-1], warp, warpeds
+
 	def predict(self, img1, img2, batch_size, resize = None):
 		''' predict the whole dataset
 		'''
@@ -282,7 +299,7 @@ class PipelineFlownet:
 			flow = np.concatenate([x.asnumpy() for x in batch_flow])
 			occ_mask = np.concatenate([x.asnumpy() for x in batch_occ_mask])
 			warped = np.concatenate([x.asnumpy() for x in batch_warped])
-			
+
 			flow = np.transpose(flow, (0, 2, 3, 1))
 			flow = np.flip(flow, axis = -1)
 			occ_mask = np.transpose(occ_mask, (0, 2, 3, 1))

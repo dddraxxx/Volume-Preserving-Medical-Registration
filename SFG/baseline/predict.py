@@ -6,14 +6,14 @@ import skimage.io
 import pdb
 # PLEASE MODIFY the paths specified in sintel.py and kitti.py
 
-def predict(pipe, prefix, batch_size = 8, resize = None):
+def predict_sintel_kitti(pipe, prefix, batch_size = 8, resize = None):
 
 	sintel_resize = (448, 1024) if resize is None else resize
 	sintel_dataset = sintel.list_data()
 	prefix = prefix + '_sintel'
 	if not os.path.exists(prefix):
 		os.mkdir(prefix)
-	
+
 	flo = sintel.Flo(1024, 436)
 
 	for div in ('test',):
@@ -36,11 +36,11 @@ def predict(pipe, prefix, batch_size = 8, resize = None):
 				skimage.io.imsave(os.path.join(seq_output_folder, fname), np.clip(warped * 255, 0, 255).astype(np.uint8))
 
 	'''
-	KITTI 2012: 
+	KITTI 2012:
 	Submission instructions: For the optical flow benchmark, all flow fields of the test set must be provided in the root directory of a zip file using the file format described in the readme.txt (16 bit color png) and the file name convention of the ground truth (000000_10.png, ... , 000194_10.png).
 
 	KITTI 2015:
-	Submission instructions: Provide a zip file which contains the 'disp_0' directory (stereo), the 'flow' directory (flow), or the 'disp_0', 'disp_1' and 'flow' directories (scene flow) in its root folder. Use the file format and naming described in the readme.txt (000000_10.png,...,000199_10.png). 
+	Submission instructions: Provide a zip file which contains the 'disp_0' directory (stereo), the 'flow' directory (flow), or the 'disp_0', 'disp_1' and 'flow' directories (scene flow) in its root folder. Use the file format and naming described in the readme.txt (000000_10.png,...,000199_10.png).
 	'''
 
 	kitti_resize = (512, 1152) if resize is None else resize
@@ -66,4 +66,41 @@ def predict(pipe, prefix, batch_size = 8, resize = None):
 			pred[:, :, 2] = (64.0 * (flow[:, :, 0] + 512)).astype(np.uint16)
 			pred[:, :, 1] = (64.0 * (flow[:, :, 1] + 512)).astype(np.uint16)
 			cv2.imwrite(out_name, pred)
-			
+
+def predict(pipe, dataset, save_dir, batch_size=8, resize = None):
+	resize = (512, 512) if resize is None else resize
+	prefix = save_dir
+	if not os.path.exists(prefix):
+		# make parent directory if not exist
+		import pathlib
+		pathlib.Path(prefix).mkdir(parents=True, exist_ok=True)
+	print('Save to {}'.format(prefix))
+
+	cnt = 0
+	for i in range(0, len(dataset), batch_size):
+		this_batch_size = min(batch_size, len(dataset) - i)
+
+		print("predicting on {} to {}".format(i, i + this_batch_size))
+		img1 = [dataset[k]['image_0'] for k in range(i, i + this_batch_size)]
+		img2 = [dataset[k]['image_1'] for k in range(i, i + this_batch_size)]
+		fids = [dataset[k]['fid'] for k in range(i, i + this_batch_size)]
+
+		for fid, result in zip(fids, pipe.predict(img1, img2, batch_size = 1, resize = resize)):
+			output_folder = os.path.join(prefix, fid)
+			if not os.path.exists(output_folder):
+				os.mkdir(output_folder)
+			flow, occ_mask, warped = result
+
+			pred = np.ones((flow.shape[0], flow.shape[1], 3)).astype(np.uint16)
+			pred[:, :, 2] = (64.0 * (flow[:, :, 0] + 512)).astype(np.uint16)
+			pred[:, :, 1] = (64.0 * (flow[:, :, 1] + 512)).astype(np.uint16)
+			save_dict = {
+       			os.path.join(output_folder, f'{fid}_flow.png'): pred,
+				os.path.join(output_folder, f'{fid}_warped.png'): warped*255,
+				os.path.join(output_folder, f'{fid}_img0.png'): img1[0],
+				os.path.join(output_folder, f'{fid}_img1.png'): img2[0],
+			}
+			cnt = cnt + 1
+
+			for k,v in save_dict.items():
+				cv2.imwrite(k, v)

@@ -128,11 +128,11 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-1024_mask.zip
-1024_data_with_evaluation6_for_affine_network.zip
+*.zip
 *.csv
 *.jpg
 *.log
 weights
 dataset/*
-
+output
+logs

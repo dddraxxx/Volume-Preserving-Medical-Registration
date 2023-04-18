@@ -12,7 +12,10 @@ class Reader:
 
     def get(self, default=None):
         if self._object is None:
+            # print in green
+            print('\033[92m', end='')
             print('Default FLAGS.{} to {}'.format(self._full_attr, default))
+            print('\033[0m', end='')
             return default
         else:
             return self._object
