@@ -3,4 +3,11 @@
 # only do valid
 python train_baseline.py MaskFlownet_S.yaml --dataset_cfg ANHIR.yaml -g 0 -c 2afApr28 --clear_steps --weight 200 --batch 1 --relative UM --prep 512 --valid
 
-# do 
+# do predict
+python train_baseline.py MaskFlownet_S.yaml --dataset_cfg ANHIR.yaml -g 0 -c 2afApr28 --clear_steps --weight 200 --batch 1 --relative UM --prep 512 --predict
+
+# do visualize
+python train_baseline.py MaskFlownet_S.yaml --dataset_cfg ANHIR.yaml -g 0 -c 2afApr28 --relative UM --visualize
+
+# do training
+python train_baseline.py MaskFlownet_S.yaml --dataset_cfg ANHIR.yaml -g 0 --clear_steps --weight 200 --batch 8 --relative UM

@@ -50,7 +50,8 @@ def LoadANHIR(prep_name, subsets = [""], data_path = r"/home/hynx/regis/SFG/data
         for row in reader:
             if reader.line_num == 1:
                 continue
-            num = int(row[0])
+            # num = int(row[0])
+            num = row[0]
 
             # If row is for training
             if row[5] == 'training':

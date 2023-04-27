@@ -23,7 +23,6 @@ def get_coords(img):
 	range_y = nd.arange(shape[3], ctx = img.context).reshape(shape = (1, 1, 1, -1)).tile(reps = (shape[0], 1, shape[2], 1))
 	return nd.concat(range_x, range_y, dim = 1)
 
-
 class PipelineFlownet:
 	_lr = None
 
@@ -211,6 +210,13 @@ class PipelineFlownet:
 			return 0, [], []
 
 	def validate(self, data, batch_size):
+		r"""
+  		Returns:
+    		raw_loss_mean: mean of raw loss
+			dist_mean: mean of distance
+			dist_median: median of distance
+			dist_mean
+      	"""
 		results = []
 		raws = []
 		dist_mean = []
@@ -236,23 +242,21 @@ class PipelineFlownet:
 				flows.append(flow)
 
 				raw = self.raw_loss_op(img1, warp)
-				raws.append(raw.mean())
+				raws.append(raw.mean().asnumpy())
 				dist_loss_mean, warped_lmk, lmk2new = self.landmark_dist(lmk1, lmk2, flows)
 
-				dist_mean.append(dist_loss_mean)
+				dist_mean.append(dist_loss_mean.asnumpy())
 				batchnum = 0
 
 		rawmean = []
 		for raw in raws:
-			raw = raw.asnumpy()
 			rawmean.append(raw)
 		distmean = []
 		for distm in dist_mean:
-			distm = distm.asnumpy()
 			distmean.append(distm)
 		results_median = []
 
-		return np.mean(rawmean), np.mean(distmean), np.median(distmean), np.mean(distmean)#np.median(results_median)
+		return np.mean(rawmean), np.mean(distmean), np.median(distmean), {'dist_mean':dist_mean, 'raw_mean':raws}
 
 
 	def do_batch(self, img1, img2, resize = None):
@@ -273,7 +277,7 @@ class PipelineFlownet:
 		return flow, occ_masks[-1], warp, warpeds
 
 	def predict(self, img1, img2, batch_size, resize = None):
-		''' predict the whole dataset
+		r''' predict the whole dataset
 		'''
 		size = len(img1)
 		bs = batch_size

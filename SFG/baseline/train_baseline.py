@@ -1,6 +1,9 @@
 #%% import packages
 import os
 import sys
+import subprocess
+GPU_ID = subprocess.getoutput('nvidia-smi --query-gpu=memory.free --format=csv,nounits,noheader | nl -v 0 | sort -nrk 2 | cut -f 1| head -n 1 | xargs')
+os.environ['CUDA_VISIBLE_DEVICES'] = GPU_ID
 
 import argparse
 import pdb
@@ -40,7 +43,7 @@ parser.add_argument('--dataset_cfg', type=str, default='chairs.yaml')
 parser.add_argument('--relative', type=str, default="")
 
 parser.add_argument('-s', '--shard', type=int, default=1, help='')
-parser.add_argument('-w', '--weight', type=int, default="", help='')
+parser.add_argument('-w', '--weight', type=int, default=200, help='dist weight when training')
 
 parser.add_argument('-g', '--gpu_device', type=str, default='0', help='Specify gpu device(s)')
 parser.add_argument('-c', '--checkpoint', type=str, default=None,
@@ -53,6 +56,7 @@ parser.add_argument('-n', '--network', type=str, default='MaskFlownet') # gl, he
 parser.add_argument('--debug', action='store_true', help='Do debug')
 parser.add_argument('--valid', action='store_true', help='Do validation')
 parser.add_argument('--predict', action='store_true', help='Do prediction')
+parser.add_argument('--visualize', action='store_true', help='Do visualization')
 
 parser.add_argument('--resize', type=str, default='')
 parser.add_argument('--prep', type=str, default=None)
@@ -123,6 +127,7 @@ if args.checkpoint is None or args.clear_steps:
 	uid = (socket.gethostname() + logger.FileLog._localtime().strftime('%b%d-%H%M') + args.gpu_device)
 	tag = hashlib.sha224(uid.encode()).hexdigest()[:3]
 	run_id = tag + logger.FileLog._localtime().strftime('%b%d-%H%M')
+	print("run_id: {}".format(run_id))
 
 # initiate
 from network import get_pipeline
@@ -154,8 +159,8 @@ if args.checkpoint is not None:
 
 # ======== If to do validation ========
 def validate():
-    if dataset_cfg.dataset.value == "ANHIR":
-        return pipe.validate(eval_data, batch_size = args.batch)
+	if dataset_cfg.dataset.value == "ANHIR":
+		return pipe.validate(eval_data, batch_size = args.batch)
 
 # ======== If to do training ========
 
@@ -174,8 +179,15 @@ if dataset_cfg.dataset.value == 'ANHIR':
 	# create the train and eval data
 	train_pairs = [(f1, f2) for group in groups_train.values() for f1 in group for f2 in group if f1 is not f2]
 	random.shuffle(train_pairs)
+	# used for evaluation
 	eval_pairs = [(f1[0], f2[0], f1[1], f2[1]) for group in groups_val.values() for f1 in group for f2 in group if f1 is not f2]
 	eval_data = [[dataset[fid] for fid in record] for record in eval_pairs]
+	# used for prediction
+	eval_dataset = [{
+		"image_0": dataset[groups_val[i][0][0]].transpose(1, 2, 0),
+		"image_1": dataset[groups_val[i][1][0]].transpose(1, 2, 0),
+		"fid": i
+	}	for i in groups_val]
 	trainSize = len(train_pairs)
 	validationSize = len(eval_data)
 else:
@@ -184,18 +196,18 @@ else:
 print('Using {}s'.format(default_timer() - t0))
 sys.stdout.flush()
 
-# ======== If to do prediction ========
+# ======== If to do prediction/visualization ========
 
 if args.predict:
 	import predict
 	checkpoint_name = os.path.basename(checkpoint).replace('.params', '')
-	eval_dataset = [{
-		"image_0": dataset[groups_val[i][0][0]].transpose(1, 2, 0),
-		"image_1": dataset[groups_val[i][1][0]].transpose(1, 2, 0),
-		"fid": i
-	}	for i in groups_val]
 	predict.predict(pipe, eval_dataset, os.path.join(repoRoot, 'output', checkpoint_name), batch_size=args.batch, resize = infer_resize)
 	sys.exit(0)
+
+if args.visualize:
+    import predict
+    predict.visualize(pipe, eval_dataset)
+    sys.exit(0)
 
 print('data read, train {} val {}'.format(trainSize, validationSize))
 sys.stdout.flush()
@@ -207,15 +219,15 @@ batch_size_card = batch_size // len(ctx)
 
 
 if dataset_cfg.dataset.value == "ANHIR":
-    raw_shape = dataset[train_pairs[0][0]].shape[1: 3]
+	raw_shape = dataset[train_pairs[0][0]].shape[1: 3]
 else:
-    raw_shape = trainImg1[0].shape[:2]
+	raw_shape = trainImg1[0].shape[:2]
 
 orig_shape = dataset_cfg.orig_shape.get(raw_shape)
 
 target_shape = dataset_cfg.target_shape.get(None)
 if target_shape is None:
-    target_shape = [shape_axis + (64 - shape_axis) % 64 for shape_axis in orig_shape]
+	target_shape = [shape_axis + (64 - shape_axis) % 64 for shape_axis in orig_shape]
 
 print(raw_shape, orig_shape, target_shape)
 sys.stdout.flush()
@@ -231,34 +243,34 @@ import augmentation
 
 aug_func = augmentation.Augmentation
 if args.relative == "":
-    aug = aug_func(angle_range=(-17, 17), zoom_range=(0.5, 1.11), translation_range=0.1, target_shape=target_shape,
-                                            orig_shape=orig_shape, batch_size=batch_size_card
-                                            )
+	aug = aug_func(angle_range=(-17, 17), zoom_range=(0.5, 1.11), translation_range=0.1, target_shape=target_shape,
+											orig_shape=orig_shape, batch_size=batch_size_card
+											)
 elif args.relative == "N":
-    aug = aug_func(angle_range=(0, 0), zoom_range=(1, 1), translation_range=0, target_shape=target_shape,
-                                            orig_shape=orig_shape, batch_size=batch_size_card
-                                            )
+	aug = aug_func(angle_range=(0, 0), zoom_range=(1, 1), translation_range=0, target_shape=target_shape,
+											orig_shape=orig_shape, batch_size=batch_size_card
+											)
 elif args.relative == "L":
-    aug = aug_func(angle_range=(-17, 17), zoom_range=(0.5, 1.11), translation_range=0.1, target_shape=target_shape,
-                                            orig_shape=orig_shape, batch_size=batch_size_card, relative_angle=0.25, relative_scale=(0.9, 1 / 0.9)
-                                            )
+	aug = aug_func(angle_range=(-17, 17), zoom_range=(0.5, 1.11), translation_range=0.1, target_shape=target_shape,
+											orig_shape=orig_shape, batch_size=batch_size_card, relative_angle=0.25, relative_scale=(0.9, 1 / 0.9)
+											)
 elif args.relative == "M":
-    aug = aug_func(angle_range=(-17, 17), zoom_range=(0.5, 1.11), translation_range=0.1, target_shape=target_shape,
-                                            orig_shape=orig_shape, batch_size=batch_size_card, relative_angle=0.25, relative_scale=(0.96, 1 / 0.96)
-                                            )
+	aug = aug_func(angle_range=(-17, 17), zoom_range=(0.5, 1.11), translation_range=0.1, target_shape=target_shape,
+											orig_shape=orig_shape, batch_size=batch_size_card, relative_angle=0.25, relative_scale=(0.96, 1 / 0.96)
+											)
 elif args.relative == "S":
-    aug = aug_func(angle_range=(-17, 17), zoom_range=(0.5, 1.11), translation_range=0.1, target_shape=target_shape,
-                                            orig_shape=orig_shape, batch_size=batch_size_card, relative_angle=0.16, relative_scale=(0.98, 1 / 0.98)
-                                            )
+	aug = aug_func(angle_range=(-17, 17), zoom_range=(0.5, 1.11), translation_range=0.1, target_shape=target_shape,
+											orig_shape=orig_shape, batch_size=batch_size_card, relative_angle=0.16, relative_scale=(0.98, 1 / 0.98)
+											)
 elif args.relative == "U":
-    aug = aug_func(angle_range=(-180, 180), zoom_range=(0.5, 1.11), translation_range=0.1, target_shape=target_shape,
-                                            orig_shape=orig_shape, batch_size=batch_size_card
-                                            )
+	aug = aug_func(angle_range=(-180, 180), zoom_range=(0.5, 1.11), translation_range=0.1, target_shape=target_shape,
+											orig_shape=orig_shape, batch_size=batch_size_card
+											)
 elif args.relative == "UM":
-    aug = aug_func(angle_range=(-180, 180), zoom_range=(0.5, 1.11), translation_range=0.1, target_shape=target_shape,
-                                            orig_shape=orig_shape, batch_size=batch_size_card,
-                                            relative_angle=0.1, relative_scale=(0.9, 1 / 0.9), relative_translation=0.05
-                                            )
+	aug = aug_func(angle_range=(-180, 180), zoom_range=(0.5, 1.11), translation_range=0.1, target_shape=target_shape,
+											orig_shape=orig_shape, batch_size=batch_size_card,
+											relative_angle=0.1, relative_scale=(0.9, 1 / 0.9), relative_translation=0.05
+											)
 aug.hybridize()
 
 aug_func = augmentation.ColorAugmentation
@@ -326,11 +338,11 @@ def iterate_data(iq, gen):
 
 
 def batch_samples(iq, oq, batch_size):
-    while True:
-        data_batch = []
-        for i in range(batch_size):
-            data_batch.append(iq.get())
-        oq.put([np.stack(x, axis=0) for x in zip(*data_batch)])
+	while True:
+		data_batch = []
+		for i in range(batch_size):
+			data_batch.append(iq.get())
+		oq.put([np.stack(x, axis=0) for x in zip(*data_batch)])
 
 def remove_file(iq):
 	while True:
@@ -346,13 +358,13 @@ batch_queue = Queue(maxsize=4)
 remove_queue = Queue(maxsize=50)
 
 def start_daemon(thread):
-    thread.daemon = True
-    thread.start()
+	thread.daemon = True
+	thread.start()
 
 start_daemon(Thread(target=iterate_data, args=(data_queue, train_gen)))
 start_daemon(Thread(target=remove_file, args=(remove_queue,)))
 for i in range(2):
-    start_daemon(Thread(target=batch_samples, args=(data_queue, batch_queue, batch_size)))
+	start_daemon(Thread(target=batch_samples, args=(data_queue, batch_queue, batch_size)))
 
 #%% training/ evaluation
 
@@ -361,11 +373,23 @@ checkpoints = []
 maxkpval = 100
 while True:
 	if args.valid:
-		raw, eva, eva_mask, kpval = validate()
+		raw, dist_mean, dist_median, per_sample_stat  = validate()
 		print("Here is the validation result:")
-		print("raw: ", raw, "eva: ", eva, "eva_mask: ", eva_mask, "kpval: ", kpval)
-		log.log('steps= {} raw= {} kp_mean= {} kp_mean_median= {} eva_kp= {}'.format(steps, raw, eva, eva_mask, kpval))
+		print("raw: ", raw, "dist_mean: ", dist_mean, "dist_median: ", dist_median)
+		log.log('steps= {} raw= {} dist_mean= {} dist_median= {}'.format(steps, raw, dist_mean, dist_median))
+		eval_path = '/home/hynx/regis/SFG/SFG/baseline/logs/val/'
+		save_name = args.checkpoint + '_val.csv'
+		if not os.path.exists(eval_path):
+			mkdir(eval_path)
+		# add fid to per_sample_stat
+		per_sample_stat['fid'] = list(groups_val.keys())
+		# write per_sample_stat dict to csv
+		with open(eval_path + save_name, 'w') as f:
+			f.write(",".join(per_sample_stat.keys()) + "\n")
+			for row in zip(*per_sample_stat.values()):
+				f.write(",".join([str(x) for x in row]) + "\n")
 		sys.exit(0)
+
 	steps += 1
 	if steps%100==0:
 		print("training step: {}/{}".format(steps, max_steps))
