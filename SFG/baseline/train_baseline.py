@@ -176,18 +176,24 @@ if dataset_cfg.dataset.value == 'ANHIR':
 	print(subset)
 	sys.stdout.flush()
 	dataset, groups, groups_train, groups_val = LoadANHIR("512", subset)
+	# dataset: dict, file_name: array
+	# groups, groups_train, groups_val: dict, 'id': [(img1_name, img1.csv),(img2_name, img2.csv)]
 	# create the train and eval data
 	train_pairs = [(f1, f2) for group in groups_train.values() for f1 in group for f2 in group if f1 is not f2]
 	random.shuffle(train_pairs)
 	# used for evaluation
-	eval_pairs = [(f1[0], f2[0], f1[1], f2[1]) for group in groups_val.values() for f1 in group for f2 in group if f1 is not f2]
-	eval_data = [[dataset[fid] for fid in record] for record in eval_pairs]
+	eval_pairs = [(f1[0], f2[0], f1[1], f2[1]) for group in groups_val.values() for f1 in group for f2 in group if f1 is not f2] # (img1_name, img2_name, img1.csv, img2.csv)
+	eval_ids = ["{}_{}".format(fid, i)
+            for fid in groups_val.keys() for i in range(len(groups_val[fid]))]
+	eval_data = [[dataset[fid] for fid in record] for record in eval_pairs] # [img1, img2]
 	# used for prediction
 	eval_dataset = [{
-		"image_0": dataset[groups_val[i][0][0]].transpose(1, 2, 0),
-		"image_1": dataset[groups_val[i][1][0]].transpose(1, 2, 0),
-		"fid": i
-	}	for i in groups_val]
+		"image_0": dataset[groups_val[i][k][0]].transpose(1, 2, 0),
+		"image_1": dataset[groups_val[i][1-k][0]].transpose(1, 2, 0),
+		"fid": "{}_{}".format(i, k),
+		"lmk_0": dataset[groups_val[i][k][1]][:6],
+		"lmk_1": dataset[groups_val[i][1-k][1]][:6],
+	}	for i in groups_val for k in [0,1]]
 	trainSize = len(train_pairs)
 	validationSize = len(eval_data)
 else:
@@ -233,7 +239,7 @@ print(raw_shape, orig_shape, target_shape)
 sys.stdout.flush()
 
 #%% create log file
-log = logger.FileLog(os.path.join(repoRoot, 'logs', 'debug' if args.debug else '', '{}.log'.format(run_id)))
+log = logger.FileLog(os.path.join(repoRoot, 'logs', 'debug' if args.debug else '', 'val' if args.valid else '','{}.log'.format(run_id)))
 log.log('start={}, train={}, val={}, host={}, batch={}'.format(steps, trainSize, validationSize, socket.gethostname(), batch_size))
 information = ', '.join(['{}={}'.format(k, repr(args.__dict__[k])) for k in args.__dict__])
 log.log(information)
@@ -377,12 +383,12 @@ while True:
 		print("Here is the validation result:")
 		print("raw: ", raw, "dist_mean: ", dist_mean, "dist_median: ", dist_median)
 		log.log('steps= {} raw= {} dist_mean= {} dist_median= {}'.format(steps, raw, dist_mean, dist_median))
-		eval_path = '/home/hynx/regis/SFG/SFG/baseline/logs/val/'
+		eval_path = '/home/hynx/regis/SFG/SFG/baseline/logs/eval/'
 		save_name = args.checkpoint + '_val.csv'
 		if not os.path.exists(eval_path):
 			mkdir(eval_path)
 		# add fid to per_sample_stat
-		per_sample_stat['fid'] = list(groups_val.keys())
+		per_sample_stat['fid'] = eval_ids
 		# write per_sample_stat dict to csv
 		with open(eval_path + save_name, 'w') as f:
 			f.write(",".join(per_sample_stat.keys()) + "\n")

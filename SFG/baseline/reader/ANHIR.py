@@ -27,22 +27,36 @@ def LoadANHIR(prep_name, subsets = [""], data_path = r"/home/hynx/regis/SFG/data
 
     # Write csv
     from pathlib import Path as pa
-    new_csv = False
+    new_csv = True
     if new_csv:
         print("Writing new csv for train/val split\n")
         csv_path = os.path.join(data_path, "matrix_sequence_manual_validation.csv")
-        nums = range(len(list(pa(prep_path1).glob('*_1.csv'))))
-        train2eval = 0.8
-        # pick 80% of the training images for training and 20% for evaluation, in nums
-        train_idx = random.sample(range(2, len(nums)), int(len(nums) * train2eval))
-        sub = ["training" if i in train_idx else "evaluation" for i in range(len(nums))]
-        rows = "\n".join(f"{i},,,,,{sub[i]}" for i in nums)
+        def random_split():
+            nums = range(len(list(pa(prep_path1).glob('*_1.csv'))))
+            train2eval = 0.8
+            # pick 80% of the training images for training and 20% for evaluation, in nums
+            train_idx = random.sample(range(2, len(nums)), int(len(nums) * train2eval))
+            sub = ["training" if i in train_idx else "evaluation" for i in range(len(nums))]
+            return nums, sub
+
+        def lmk_num_split():
+            reader = sorted(pa(prep_path1).glob('*_1.csv'))
+            lmk_num = [
+                (f.stem[:-2],
+                 len(
+                    (open(f, "r")).readlines()
+                 )-1)
+                for f in reader]
+            sub = ["training" if l[1] > 50 else "evaluation" for l in lmk_num]
+            return [l[0] for l in lmk_num], sub
+
+        ids, sub = lmk_num_split()
+        rows = "\n".join(f"{i},,,,,{s}" for i,s in zip(ids, sub))
         with open(csv_path, "w") as f:
             f.write("id,group,patient,side,view,subset\n")
             f.write(rows)
 
     # Read csv and load images into training and evaluation loaders according to csv
-    reader = pa(data_path).glob('*.csv')
     with open(os.path.join(data_path, "matrix_sequence_manual_validation.csv"), newline="") as f:
         reader = csv.reader(f)
 

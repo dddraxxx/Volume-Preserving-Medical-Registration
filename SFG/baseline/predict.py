@@ -69,6 +69,14 @@ def predict_sintel_kitti(pipe, prefix, batch_size = 8, resize = None):
             pred[:, :, 1] = (64.0 * (flow[:, :, 1] + 512)).astype(np.uint16)
             cv2.imwrite(out_name, pred)
 
+def add_landmarks(img, lmk, color = (0, 0, 255)):
+    img = img.copy()
+    lmk = lmk.astype(np.int32)
+    for i in range(lmk.shape[0]):
+        x, y = lmk[i]
+        cv2.circle(img, (y, x), 3, color, -1)
+    return img
+
 def predict(pipe, dataset, save_dir, batch_size=8, resize = None):
     resize = (512, 512) if resize is None else resize
     prefix = save_dir
@@ -82,7 +90,7 @@ def predict(pipe, dataset, save_dir, batch_size=8, resize = None):
     for i in range(0, len(dataset), batch_size):
         this_batch_size = min(batch_size, len(dataset) - i)
 
-        print("predicting on {} to {}".format(i, i + this_batch_size))
+        print("predicting on {} to {}".format(i, i + this_batch_size), end="\r", flush=True)
         img1 = [dataset[k]['image_0'] for k in range(i, i + this_batch_size)]
         img2 = [dataset[k]['image_1'] for k in range(i, i + this_batch_size)]
         fids = [dataset[k]['fid'] for k in range(i, i + this_batch_size)]
@@ -92,15 +100,22 @@ def predict(pipe, dataset, save_dir, batch_size=8, resize = None):
             if not os.path.exists(output_folder):
                 os.mkdir(output_folder)
             flow, occ_mask, warped = result
+            # lmk_warped = pipe.reconstruction()
 
             pred = np.ones((flow.shape[0], flow.shape[1], 3)).astype(np.uint16)
             pred[:, :, 2] = (64.0 * (flow[:, :, 0] + 512)).astype(np.uint16)
             pred[:, :, 1] = (64.0 * (flow[:, :, 1] + 512)).astype(np.uint16)
+
+            img1_lmk = add_landmarks(img1[0], dataset[i]['lmk_0'], color=(0, 255, 0))
+            img2_lmk = add_landmarks(img2[0], dataset[i]['lmk_1'], color=(0, 0, 255))
+            warped = warped * 255
+            warped_lmk = add_landmarks(warped, dataset[i]['lmk_0'], color=(0, 255, 0))
+            warped_lmk = add_landmarks(warped_lmk, dataset[i]['lmk_1'], color=(0, 0, 255))
             save_dict = {
                 os.path.join(output_folder, f'{fid}_flow.png'): pred,
-                os.path.join(output_folder, f'{fid}_warped.png'): warped * 255,
-                os.path.join(output_folder, f'{fid}_img0.png'): img1[0],
-                os.path.join(output_folder, f'{fid}_img1.png'): img2[0],
+                os.path.join(output_folder, f'{fid}_warped.png'): warped_lmk,
+                os.path.join(output_folder, f'{fid}_img0.png'): img1_lmk,
+                os.path.join(output_folder, f'{fid}_img1.png'): img2_lmk,
             }
             cnt = cnt + 1
 
