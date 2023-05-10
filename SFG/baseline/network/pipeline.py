@@ -151,8 +151,8 @@ class PipelineFlownet:
 		if np.shape(lmk2)[0] > 0:
 			flow_len = len(flows)
 			shape = nd.array(flows[0].shape[2: 4], ctx=flows[0].context)
-			lmk_mask = (1 - nd.prod(lmk1 == lmk1[0][199][0] * lmk1[0][199][1], axis=-1)) * (
-						1 - nd.prod(lmk2 == lmk2[0][199][0] * lmk2[0][199][1], axis=-1)) > 0.5
+			lmk_mask = (1 - nd.prod(lmk1 == 0, axis=-1)) * (
+						1 - nd.prod(lmk2 == 0, axis=-1)) > 0.5
 			for flow in flows:
 				batch_lmk = lmk1 / (nd.reshape(shape, (1, 1, 2)) - 1) * 2 - 1
 				batch_lmk = batch_lmk.transpose((0, 2, 1)).expand_dims(axis=3)
@@ -221,7 +221,7 @@ class PipelineFlownet:
 		raws = []
 		dist_mean = []
 		size = len(data)
-		bs = batch_size * len(self.ctx)
+		# bs = batch_size * len(self.ctx)
 		bs = len(self.ctx)
 		output_cnt = 0
 		for j in range(0, size, bs):

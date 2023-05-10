@@ -6,6 +6,7 @@ import skimage.io
 import torch
 from VP.utilities import gpu_reverse_flow, jacobian_det, reverse_flow
 from VP.vis_utilities import array_hist_image
+import mxnet as mx
 
 # PLEASE MODIFY the paths specified in sintel.py and kitti.py
 def predict_sintel_kitti(pipe, prefix, batch_size = 8, resize = None):
@@ -77,6 +78,15 @@ def add_landmarks(img, lmk, color = (0, 0, 255)):
         cv2.circle(img, (y, x), 3, color, -1)
     return img
 
+def eval_single(pipe, img1, warp, lmk1, lmk2, flow):
+    # convert np to ndarray
+    flow = np.flip(flow, axis = -1)
+    img1, warp, lmk1, lmk2, flow = [mx.nd.array(x, ctx=pipe.ctx[0])
+                                    for x in [img1, warp, lmk1, lmk2, flow]]
+    raw = pipe.raw_loss_op(img1, warp)
+    dist_loss_mean, warped_lmk, lmk2new = pipe.landmark_dist(lmk1[None], lmk2[None], [flow[None].transpose((0, 3, 1, 2))])
+    return raw, dist_loss_mean
+
 def predict(pipe, dataset, save_dir, batch_size=8, resize = None):
     resize = (512, 512) if resize is None else resize
     prefix = save_dir
@@ -87,6 +97,7 @@ def predict(pipe, dataset, save_dir, batch_size=8, resize = None):
     print('Save to {}'.format(prefix))
 
     cnt = 0
+    eval_metrics = []
     for i in range(0, len(dataset), batch_size):
         this_batch_size = min(batch_size, len(dataset) - i)
 
@@ -94,23 +105,34 @@ def predict(pipe, dataset, save_dir, batch_size=8, resize = None):
         img1 = [dataset[k]['image_0'] for k in range(i, i + this_batch_size)]
         img2 = [dataset[k]['image_1'] for k in range(i, i + this_batch_size)]
         fids = [dataset[k]['fid'] for k in range(i, i + this_batch_size)]
+        lmk1 = [dataset[k]['lmk_0'] for k in range(i, i + this_batch_size)]
+        lmk2 = [dataset[k]['lmk_1'] for k in range(i, i + this_batch_size)]
 
-        for fid, result in zip(fids, pipe.predict(img1, img2, batch_size = 1, resize = resize)):
+        for fid, result, j in zip(fids, pipe.predict(img1, img2, batch_size = batch_size, resize = resize), range(this_batch_size)):
             output_folder = os.path.join(prefix, fid)
             if not os.path.exists(output_folder):
                 os.mkdir(output_folder)
             flow, occ_mask, warped = result
-            # lmk_warped = pipe.reconstruction()
+            # eval metrics
+            raw_loss, dist_mean = eval_single(pipe, img1[j]/255.0, warped, lmk1[j], lmk2[j], flow)
+            eval_metrics.append(
+                {
+                    'fid': fid,
+                    'raw_loss': raw_loss.mean().asnumpy(),
+                    'dist_mean': dist_mean.mean().asnumpy(),
+                }
+            )
 
+            # save images
             pred = np.ones((flow.shape[0], flow.shape[1], 3)).astype(np.uint16)
             pred[:, :, 2] = (64.0 * (flow[:, :, 0] + 512)).astype(np.uint16)
             pred[:, :, 1] = (64.0 * (flow[:, :, 1] + 512)).astype(np.uint16)
 
-            img1_lmk = add_landmarks(img1[0], dataset[i]['lmk_0'], color=(0, 255, 0))
-            img2_lmk = add_landmarks(img2[0], dataset[i]['lmk_1'], color=(0, 0, 255))
+            img1_lmk = add_landmarks(img1[j], lmk1[j], color=(0, 255, 0))
+            img2_lmk = add_landmarks(img2[j], lmk2[j], color=(0, 0, 255))
             warped = warped * 255
-            warped_lmk = add_landmarks(warped, dataset[i]['lmk_0'], color=(0, 255, 0))
-            warped_lmk = add_landmarks(warped_lmk, dataset[i]['lmk_1'], color=(0, 0, 255))
+            warped_lmk = add_landmarks(warped, lmk1[j], color=(0, 255, 0))
+            warped_lmk = add_landmarks(warped_lmk, lmk2[j], color=(0, 0, 255))
             save_dict = {
                 os.path.join(output_folder, f'{fid}_flow.png'): pred,
                 os.path.join(output_folder, f'{fid}_warped.png'): warped_lmk,
@@ -121,6 +143,8 @@ def predict(pipe, dataset, save_dir, batch_size=8, resize = None):
 
             for k,v in save_dict.items():
                 cv2.imwrite(k, v)
+        break
+    return eval_metrics
 
 def visualize(pipe, dataset, save_dir='/home/hynx/regis/SFG/tmp', resize = None):
     resize = (512, 512) if resize is None else resize

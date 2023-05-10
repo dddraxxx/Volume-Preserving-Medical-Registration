@@ -1,14 +1,26 @@
-import os
 import csv
-import skimage.io, skimage.filters
-import numpy as np
-from timeit import default_timer
+import os
 import pdb
-from skimage import io
-import pandas as pd
-from numpy import *
-import skimage
 import random
+from timeit import default_timer
+
+import numpy as np
+import pandas as pd
+import skimage
+import skimage.filters
+import skimage.io
+from numpy import *
+from skimage import io
+
+def load_lmk(path):
+    try:
+        lmk = pd.read_csv(os.path.join(path))
+        lmk = np.array(lmk)
+        lmk = lmk[:, [2, 1]]
+        lmk = np.pad(lmk, ((0, 200 - len(lmk)), (0, 0)), "constant")
+    except:
+        lmk = np.zeros((200, 2), dtype=np.int64)
+    return lmk
 
 def LoadANHIR(prep_name, subsets = [""], data_path = r"/home/hynx/regis/SFG/dataset"):
     # Print data path
@@ -27,7 +39,7 @@ def LoadANHIR(prep_name, subsets = [""], data_path = r"/home/hynx/regis/SFG/data
 
     # Write csv
     from pathlib import Path as pa
-    new_csv = True
+    new_csv = False
     if new_csv:
         print("Writing new csv for train/val split\n")
         csv_path = os.path.join(data_path, "matrix_sequence_manual_validation.csv")
@@ -85,6 +97,8 @@ def LoadANHIR(prep_name, subsets = [""], data_path = r"/home/hynx/regis/SFG/data
                     im_temp2[1] = im_temp1
                     im_temp2[2] = im_temp1
                     dataset[fimg] = im_temp2
+                    # add landmark
+                    dataset[flmk] = load_lmk(os.path.join(prep_path1, flmk))
                     groups[group].append(fimg)
                     train_groups[group].append(fimg)
 
@@ -104,6 +118,8 @@ def LoadANHIR(prep_name, subsets = [""], data_path = r"/home/hynx/regis/SFG/data
                     im_temp2[1] = im_temp1
                     im_temp2[2] = im_temp1
                     dataset[fimg] = im_temp2
+                    # add landmark
+                    dataset[flmk] = load_lmk(os.path.join(prep_path1, flmk))
                     groups[group].append(fimg)
                     train_groups[group].append(fimg)
 

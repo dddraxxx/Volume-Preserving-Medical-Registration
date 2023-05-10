@@ -56,6 +56,7 @@ parser.add_argument('-n', '--network', type=str, default='MaskFlownet') # gl, he
 parser.add_argument('--debug', action='store_true', help='Do debug')
 parser.add_argument('--valid', action='store_true', help='Do validation')
 parser.add_argument('--predict', action='store_true', help='Do prediction')
+parser.add_argument('--predict_fold', type=str, choices=['train', 'val', 'test'], default='')
 parser.add_argument('--visualize', action='store_true', help='Do visualization')
 
 parser.add_argument('--resize', type=str, default='')
@@ -157,13 +158,6 @@ if args.checkpoint is not None:
 		pipe.trainer.load_states(checkpoint.replace('params', 'states'))
 
 
-# ======== If to do validation ========
-def validate():
-	if dataset_cfg.dataset.value == "ANHIR":
-		return pipe.validate(eval_data, batch_size = args.batch)
-
-# ======== If to do training ========
-
 #%% load training/validation datasets
 validation_datasets = {}
 samples = 32 if args.debug else -1
@@ -185,43 +179,76 @@ if dataset_cfg.dataset.value == 'ANHIR':
 	eval_pairs = [(f1[0], f2[0], f1[1], f2[1]) for group in groups_val.values() for f1 in group for f2 in group if f1 is not f2] # (img1_name, img2_name, img1.csv, img2.csv)
 	eval_ids = ["{}_{}".format(fid, i)
             for fid in groups_val.keys() for i in range(len(groups_val[fid]))]
-	eval_data = [[dataset[fid] for fid in record] for record in eval_pairs] # [img1, img2]
-	# used for prediction
-	eval_dataset = [{
-		"image_0": dataset[groups_val[i][k][0]].transpose(1, 2, 0),
-		"image_1": dataset[groups_val[i][1-k][0]].transpose(1, 2, 0),
-		"fid": "{}_{}".format(i, k),
-		"lmk_0": dataset[groups_val[i][k][1]][:6],
-		"lmk_1": dataset[groups_val[i][1-k][1]][:6],
-	}	for i in groups_val for k in [0,1]]
+	eval_data = [[dataset[fid] for fid in record] for record in eval_pairs] # [img1, img2, lmk1, lmk2]
 	trainSize = len(train_pairs)
 	validationSize = len(eval_data)
+	# used for prediction
+	if args.predict:
+		if args.predict_fold == 'val':
+			groups_pred = groups_val
+			lmk_len = 6
+		elif args.predict_fold == 'train':
+			groups_pred = {g:[ [k, k[:-3]+'csv'] for k in v ] for g,v in groups_train.items()}
+			lmk_len = 60
+		predict_data = [{
+			"image_0": dataset[groups_pred[i][k][0]].transpose(1, 2, 0),
+			"image_1": dataset[groups_pred[i][1-k][0]].transpose(1, 2, 0),
+			"fid": "{}_{}".format(i, k),
+			"lmk_0": dataset[groups_pred[i][k][1]][:lmk_len],
+			"lmk_1": dataset[groups_pred[i][1-k][1]][:lmk_len],
+		}	for i in groups_pred for k in [0,1] if i in ["4", "04", "6", "06"]]
+
 else:
 	raise NotImplementedError
 
 print('Using {}s'.format(default_timer() - t0))
 sys.stdout.flush()
 
-# ======== If to do prediction/visualization ========
-
-if args.predict:
-	import predict
-	checkpoint_name = os.path.basename(checkpoint).replace('.params', '')
-	predict.predict(pipe, eval_dataset, os.path.join(repoRoot, 'output', checkpoint_name), batch_size=args.batch, resize = infer_resize)
-	sys.exit(0)
-
-if args.visualize:
-    import predict
-    predict.visualize(pipe, eval_dataset)
-    sys.exit(0)
-
 print('data read, train {} val {}'.format(trainSize, validationSize))
 sys.stdout.flush()
 
+# ======== If to do validation ========
+def validate():
+	if dataset_cfg.dataset.value == "ANHIR":
+		return pipe.validate(eval_data, batch_size = args.batch)
 
-batch_size=args.batch
-assert batch_size % len(ctx) == 0
-batch_size_card = batch_size // len(ctx)
+# ======== If to do prediction/visualization ========
+#%% create log file
+log = logger.FileLog(os.path.join(repoRoot, 'logs', 'debug' if args.debug else '', 'validate_log' if args.valid else '','{}.log'.format(run_id)))
+if args.predict or args.visualize or args.valid:
+	if args.predict:
+		import predict
+		checkpoint_name = os.path.basename(checkpoint).replace('.params', '')
+		metrics = predict.predict(pipe, predict_data, os.path.join(repoRoot, 'output', args.predict_fold, checkpoint_name), batch_size=args.batch, resize = infer_resize)
+		# write to csv
+		save_path = os.path.join(repoRoot, 'output', args.predict_fold, checkpoint_name+'.csv')
+		f = open(save_path, 'w')
+		f.write(','.join(metrics[0].keys())+'\n')
+		for case in metrics:
+			f.write(','.join([str(v) for v in case.values()])+'\n')
+		f.close()
+
+	if args.visualize:
+		import predict
+		predict.visualize(pipe, predict_data)
+
+	if args.valid:
+		raw, dist_mean, dist_median, per_sample_stat  = validate()
+		print("Here is the validation result:")
+		print("raw: ", raw, "dist_mean: ", dist_mean, "dist_median: ", dist_median)
+		log.log('steps= {} raw= {} dist_mean= {} dist_median= {}'.format(steps, raw, dist_mean, dist_median))
+		eval_path = '/home/hynx/regis/SFG/SFG/baseline/logs/eval/'
+		save_name = args.checkpoint + '_val.csv'
+		if not os.path.exists(eval_path):
+			mkdir(eval_path)
+		# add fid to per_sample_stat
+		per_sample_stat['fid'] = eval_ids
+		# write per_sample_stat dict to csv
+		with open(eval_path + save_name, 'w') as f:
+			f.write(",".join(per_sample_stat.keys()) + "\n")
+			for row in zip(*per_sample_stat.values()):
+				f.write(",".join([str(x) for x in row]) + "\n")
+	sys.exit(0)
 
 
 if dataset_cfg.dataset.value == "ANHIR":
@@ -238,8 +265,10 @@ if target_shape is None:
 print(raw_shape, orig_shape, target_shape)
 sys.stdout.flush()
 
-#%% create log file
-log = logger.FileLog(os.path.join(repoRoot, 'logs', 'debug' if args.debug else '', 'val' if args.valid else '','{}.log'.format(run_id)))
+batch_size=args.batch
+assert batch_size % len(ctx) == 0
+batch_size_card = batch_size // len(ctx)
+
 log.log('start={}, train={}, val={}, host={}, batch={}'.format(steps, trainSize, validationSize, socket.gethostname(), batch_size))
 information = ', '.join(['{}={}'.format(k, repr(args.__dict__[k])) for k in args.__dict__])
 log.log(information)
@@ -378,24 +407,6 @@ t1 = None
 checkpoints = []
 maxkpval = 100
 while True:
-	if args.valid:
-		raw, dist_mean, dist_median, per_sample_stat  = validate()
-		print("Here is the validation result:")
-		print("raw: ", raw, "dist_mean: ", dist_mean, "dist_median: ", dist_median)
-		log.log('steps= {} raw= {} dist_mean= {} dist_median= {}'.format(steps, raw, dist_mean, dist_median))
-		eval_path = '/home/hynx/regis/SFG/SFG/baseline/logs/eval/'
-		save_name = args.checkpoint + '_val.csv'
-		if not os.path.exists(eval_path):
-			mkdir(eval_path)
-		# add fid to per_sample_stat
-		per_sample_stat['fid'] = eval_ids
-		# write per_sample_stat dict to csv
-		with open(eval_path + save_name, 'w') as f:
-			f.write(",".join(per_sample_stat.keys()) + "\n")
-			for row in zip(*per_sample_stat.values()):
-				f.write(",".join([str(x) for x in row]) + "\n")
-		sys.exit(0)
-
 	steps += 1
 	if steps%100==0:
 		print("training step: {}/{}".format(steps, max_steps))
