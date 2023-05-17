@@ -121,6 +121,10 @@ class PipelineFlownet:
         warp = self.reconstruction(img2s, flow)
         return flow, warp
 
+    def warp_raw_img(self, img1s, img2s):
+        img1s[...], img2s[...] = self.img_preproc(img1s, img2s)
+        return self.net_infer(img1s, img2s)
+
     def train_batch(self, dist_weight, img1, img2, color_aug, aug):
         losses = []
         reg_losses = []
@@ -131,8 +135,7 @@ class PipelineFlownet:
         hsh = "".join(random.sample(string.ascii_letters + string.digits, 10))
         with autograd.record():
             for img1s, img2s in zip(img1, img2):
-                img1s, img2s = self.img_preproc(img1s, img2s)
-                flow, warp = self.net_infer(img1s, img2s)
+                flow, warp = self.warp_raw_img(img1s, img2s)
                 flows = []
                 flows.append(flow)
                 # dist_loss, warped_lmk, lmk2new = self.landmark_dist(lmk1, lmk2, flows)
@@ -239,15 +242,7 @@ class PipelineFlownet:
             ctx = self.ctx[: min(len(batch_data), len(self.ctx))]
             nd_data = [gluon.utils.split_and_load([record[i] for record in batch_data], ctx, even_split=False) for i in range(len(batch_data[0]))]
             for img1, img2, lmk1, lmk2 in zip(*nd_data):
-                img1, img2 = img1 / 255.0, img2 / 255.0
-                img1, img2, rgb_mean = self.centralize(img1, img2)
-
-                pred, occ_masks, warpeds = self.network(img1, img2)
-                shape = img1.shape
-                flow = self.upsampler(pred[-1])
-                if shape[2] != flow.shape[2] or shape[3] != flow.shape[3]:
-                    flow = nd.contrib.BilinearResize2D(flow, height=shape[2], width=shape[3]) * nd.array([shape[d] / flow.shape[d] for d in (2, 3)], ctx=flow.context).reshape((1, 2, 1, 1))
-                warp = self.reconstruction(img2, flow)
+                flow, warp = self.warp_raw_img(img1, img2)
                 flows = []
                 flows.append(flow)
 
