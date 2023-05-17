@@ -14,6 +14,12 @@ from network import get_pipeline
 from reader.ANHIR import ANHIRPredict, LoadANHIR
 
 #%% get args and configs
+# setup GPU
+def set_gpu():
+    import subprocess
+    GPU_ID = subprocess.getoutput('nvidia-smi --query-gpu=memory.free --format=csv,nounits,noheader | nl -v 0 | sort -nrk 2 | cut -f 1| head -n 1 | xargs')
+    os.environ['CUDA_VISIBLE_DEVICES'] = GPU_ID
+    os.environ["MXNET_CUDNN_AUTOTUNE_DEFAULT"] = "0"
 
 # get parse args
 def get_parse_args():
@@ -47,6 +53,9 @@ def get_parse_args():
     parser.add_argument('--resize', type=str, default='')
     parser.add_argument('--prep', type=str, default=None)
 
+    # parser for volume-preserving
+    parser.add_argument('--vp', action='store_true', help='Do volume-preserving')
+
     args = parser.parse_args()
     return args
 
@@ -75,13 +84,13 @@ def mkdir(path):
 def setup_saving_dir(cfg):
    # create directories
     mkdir('logs')
-    mkdir(os.path.join('logs', 'val'))
     mkdir(os.path.join('logs', 'debug'))
     mkdir('weights')
     mkdir('flows')
 
 def setup_log(cfg):
-    return logger.FileLog(os.path.join(cfg.repoRoot, 'logs', 'debug' if cfg.debug else '', 'validate_log' if cfg.valid else '','{}.log'.format(cfg.run_id)))
+    mode = 'validate_log' if cfg.valid else ''
+    return logger.FileLog(os.path.join(cfg.repoRoot, 'logs', 'debug' if cfg.debug else '', '{}.log'.format(cfg.run_id)))
 
 #%% pipe setup
 def get_pipe(cfg, network_cfg, dataset_cfg):
@@ -156,7 +165,7 @@ def load_pipe(cfg, pipe, network_cfg, dataset_cfg):
         if not cfg.valid and not cfg.predict and not cfg.clear_steps:
             pipe.trainer.step(100, ignore_stale_grad=True)
             pipe.trainer.load_states(cfg.checkpoint.replace('params', 'states'))
-    
+
 #%% load dataset
 def load_dataset(cfg, dataset_cfg):
     if dataset_cfg.dataset.value == 'ANHIR':

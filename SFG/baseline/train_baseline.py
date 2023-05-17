@@ -1,60 +1,45 @@
 #%% import packages
 import os
-import subprocess
 import sys
-
-GPU_ID = subprocess.getoutput('nvidia-smi --query-gpu=memory.free --format=csv,nounits,noheader | nl -v 0 | sort -nrk 2 | cut -f 1| head -n 1 | xargs')
-os.environ['CUDA_VISIBLE_DEVICES'] = GPU_ID
-os.environ["MXNET_CUDNN_AUTOTUNE_DEFAULT"] = "0"
-
-import argparse
-import hashlib
-import random
-import socket
 from timeit import default_timer
-
-import yaml
 
 import configure
 import func_utils
 import mxnet as mx
 import numpy as np
-from reader import hd1k, kitti, sintel, things3d
 
 #%% parse arguments
-
-cfg = configure.get_parse_args()
-cfg = configure.get_config(cfg)
+args = configure.get_parse_args()
+cfg = configure.get_config(args)
 cfg.ctx = [mx.cpu()] if cfg.gpu_device == '' else [mx.gpu(gpu_id) for gpu_id in map(int, cfg.gpu_device.split(','))]
 cfg.infer_resize = [int(s) for s in cfg.resize.split(',')] if cfg.resize else None
 cfg.repoRoot = r'.'
 
-#%%
-## configure networks, data loaders, and logging
+#%% get configs and set up dir, log
+## config of networks, data loaders, and logging
 network_cfg, dataset_cfg = configure.read_config_file(cfg)
 cfg.validation_steps = dataset_cfg.validation_steps.value
 cfg.checkpoint_steps = dataset_cfg.checkpoint_steps.value
 cfg.max_steps = network_cfg.optimizer.learning_rate.value[-1][0]
 
-# create log file
+# set up names and files
 configure.setup_saving_dir(cfg)
 cfg.checkpoint_stem = cfg.checkpoint
 cfg.checkpoint, cfg.steps = configure.find_checkpoint(cfg)
 run_id = configure.generate_runid(cfg); cfg.run_id = run_id
 log = configure.setup_log(cfg)
 
+#%% build pipeline and dataset
 # initiate pipe
 pipe = configure.get_pipe(cfg, network_cfg, dataset_cfg)
 configure.load_pipe(cfg, pipe, network_cfg, dataset_cfg)
-
 if cfg.vp:
-    configure.set_vp(pipe)
+    configure.set_vp(cfg, pipe)
 
-
-#%% load training/validation datasets
+# load training/validation datasets
 dataset, train_pairs, eval_data, eval_ids, predict_data = configure.load_dataset(cfg, dataset_cfg)
 
-# ======== If to do validation/prediction/visualization ========
+#%%  If to do validation/prediction/visualization
 def validate():
 	if dataset_cfg.dataset.value == "ANHIR":
 		return pipe.validate(eval_data, batch_size = cfg.batch)
@@ -65,7 +50,7 @@ if cfg.predict or cfg.visualize or cfg.valid:
 		checkpoint_name = os.path.basename(cfg.checkpoint).replace('.params', '')
 		metrics = predict.predict(pipe, predict_data, os.path.join(cfg.repoRoot, 'output', cfg.predict_fold, checkpoint_name), batch_size=cfg.batch, resize = cfg.infer_resize)
 		# write to csv
-		save_path = os.path.join(cfg.repoRoot, 'output', cfg.predict_fold, checkpoint_name+'.csv')
+		save_path = os.path.join(cfg.repoRoot, 'output/pred', cfg.predict_fold, checkpoint_name+'.csv')
 		f = open(save_path, 'w')
 		f.write(','.join(metrics[0].keys())+'\n')
 		for case in metrics:
@@ -81,7 +66,7 @@ if cfg.predict or cfg.visualize or cfg.valid:
 		print("Here is the validation result:")
 		print("raw: ", raw, "dist_mean: ", dist_mean, "dist_median: ", dist_median)
 		log.log('steps= {} raw= {} dist_mean= {} dist_median= {}'.format(cfg.steps, raw, dist_mean, dist_median))
-		eval_path = '/home/hynx/regis/SFG/SFG/baseline/logs/eval/'
+		eval_path = '/home/hynx/regis/SFG/SFG/baseline/output/valid/'
 		save_name = cfg.checkpoint_stem + '_val.csv'
 		if not os.path.exists(eval_path): os.makedirs(eval_path)
 		# add fid to per_sample_stat
@@ -93,6 +78,7 @@ if cfg.predict or cfg.visualize or cfg.valid:
 				f.write(",".join([str(x) for x in row]) + "\n")
 	sys.exit(0)
 
+#%% set training parameters
 # get dataset shape
 raw_shape, orig_shape, target_shape, batch_size, batch_size_card \
     = func_utils.get_shape(cfg, dataset_cfg, dataset, train_pairs, log)
@@ -105,8 +91,7 @@ loading_time, total_time, train_avg = configure.get_time_logger()
 # set dataloader
 batch_queue, remove_queue = configure.get_batch_queue(cfg, dataset_cfg, dataset, train_pairs, log)
 
-#%% training/ evaluation
-
+#%% training
 t1 = None
 checkpoints = []
 maxkpval = 100
