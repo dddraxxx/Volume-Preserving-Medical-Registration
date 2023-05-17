@@ -171,9 +171,10 @@ class PipelineFlownet:
                 warped_lmk = lmk1 + nd.BilinearSampler(flow, batch_lmk.flip(axis=1)).squeeze(axis=-1).transpose(
                     (0, 2, 1))
                 lmk1 = warped_lmk
-            lmk_dist = nd.mean(nd.sqrt(nd.sum(nd.square(warped_lmk - lmk2), axis=-1) * lmk_mask + 1e-5), axis=-1)
-            lmk_dist = lmk_dist/(np.sum(lmk_mask, axis=1)+1e-5)*200 # 消除当kp数目为0的时候的影响
-            lmk_dist = lmk_dist*(np.sum(lmk_mask, axis=1)!=0) # 消除当kp数目为0的时候的影响
+            if np.sum(lmk_mask, axis=1)==0:
+                return 0, warped_lmk, lmk2
+            lmk_dist = nd.sum(nd.sqrt(nd.sum(nd.square(warped_lmk - lmk2), axis=-1) * lmk_mask + 1e-5*lmk_mask), axis=-1)
+            lmk_dist = lmk_dist/(np.sum(lmk_mask, axis=1)+1e-5) # 消除当kp数目为0的时候的影响
             return lmk_dist, warped_lmk, lmk2
             # return lmk_dist / (shape[0]*1.414), warped_lmk, lmk2
         else:
@@ -247,11 +248,9 @@ class PipelineFlownet:
                 flows.append(flow)
 
                 raw = self.raw_loss_op(img1, warp)
-                raws.append(raw.mean().asnumpy())
                 dist_loss_mean, warped_lmk, lmk2new = self.landmark_dist(lmk1, lmk2, flows)
-
+                raws.append(raw.mean().asnumpy())
                 dist_mean.append(dist_loss_mean.asnumpy())
-                batchnum = 0
 
         rawmean = []
         for raw in raws:
@@ -259,27 +258,20 @@ class PipelineFlownet:
         distmean = []
         for distm in dist_mean:
             distmean.append(distm)
-        results_median = []
 
         return np.mean(rawmean), np.mean(distmean), np.median(distmean), {'dist_mean':dist_mean, 'raw_mean':raws}
 
-
-    def do_batch(self, img1, img2, resize = None):
-        if resize:
-            img1 = nd.contrib.BilinearResize2D(img1, height=resize[0], width=resize[1])
-            img2 = nd.contrib.BilinearResize2D(img2, height=resize[0], width=resize[1])
-        flow, warp = self.warp_raw_img(img1, img2)
-        # shape = img1.shape
-        # img1, img2, rgb_mean = self.centralize(img1, img2)
-        # pred, occ_masks, warpeds = self.network(img1, img2)
-
-        # flow = self.upsampler(pred[-1])
-        # if shape[2] != flow.shape[2] or shape[3] != flow.shape[3]:
-        #     flow = nd.contrib.BilinearResize2D(flow, height=shape[2], width=shape[3]) * nd.array([shape[d] / flow.shape[d] for d in (2, 3)], ctx=flow.context).reshape((1, 2, 1, 1))
-        # warp = self.reconstruction(img2, flow)
-        # warpeds = nd.stack(*warpeds, axis=0)
-
-        return flow, warp
+    def eval_single(self, flow, warp, lmk1, lmk2, img1, img2):
+        # convert np to ndarray
+        # flow = np.flip(flow, axis = -1)
+        img1, img2, warp, lmk1, lmk2, flow = [mx.nd.array(x, ctx=self.ctx[0])
+                                        for x in [img1, img2, warp, lmk1, lmk2, flow]]
+        img1, img2 = img1[None].transpose((0, 3, 1, 2)), img2[None].transpose((0, 3, 1, 2))
+        warp = warp[None].transpose((0, 3, 1, 2))
+        img1, img2 = self.img_preproc(img1, img2)
+        raw = self.raw_loss_op(img1, warp)
+        dist_loss_mean, warped_lmk, lmk2new = self.landmark_dist(lmk1[None], lmk2[None], [flow[None].transpose((0, 3, 1, 2))])
+        return raw, dist_loss_mean
 
     def predict(self, img1, img2, batch_size, resize = None):
         r''' predict the whole dataset
@@ -292,22 +284,26 @@ class PipelineFlownet:
 
             batch_img1 = np.transpose(np.stack(batch_img1, axis=0), (0, 3, 1, 2))
             batch_img2 = np.transpose(np.stack(batch_img2, axis=0), (0, 3, 1, 2))
+            data = [batch_img1, batch_img2]
 
             batch_flow = []
-            batch_occ_mask = []
             batch_warped = []
 
             ctx = self.ctx[ : min(len(batch_img1), len(self.ctx))]
-            nd_img1, nd_img2 = map(lambda x : gluon.utils.split_and_load(x, ctx, even_split = False), (batch_img1, batch_img2))
+            nd_img1, nd_img2 = map(lambda x : gluon.utils.split_and_load(x, ctx, even_split = False), data)
+
             for img1s, img2s in zip(nd_img1, nd_img2):
-                flow, warped = self.do_batch(img1s, img2s, resize = resize)
+                if resize:
+                    img1 = nd.contrib.BilinearResize2D(img1s, height=resize[0], width=resize[1])
+                    img2 = nd.contrib.BilinearResize2D(img2s, height=resize[0], width=resize[1])
+                flow, warped = self.warp_raw_img(img1, img2)
                 batch_flow.append(flow)
                 batch_warped.append(warped)
+
             flow = np.concatenate([x.asnumpy() for x in batch_flow])
             warped = np.concatenate([x.asnumpy() for x in batch_warped])
 
             flow = np.transpose(flow, (0, 2, 3, 1))
-            flow = np.flip(flow, axis = -1)
+            # flow = np.flip(flow, axis = -1)
             warped = np.transpose(warped, (0, 2, 3, 1))
-            for k in range(len(flow)):
-                yield flow[k], warped[k]
+            for k in range(len(flow)): yield flow[k], warped[k]
