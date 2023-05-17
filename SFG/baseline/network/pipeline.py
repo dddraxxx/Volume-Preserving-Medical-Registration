@@ -268,18 +268,18 @@ class PipelineFlownet:
         if resize:
             img1 = nd.contrib.BilinearResize2D(img1, height=resize[0], width=resize[1])
             img2 = nd.contrib.BilinearResize2D(img2, height=resize[0], width=resize[1])
-        shape = img1.shape
-        img1, img2, rgb_mean = self.centralize(img1, img2)
-        pred, occ_masks, warpeds = self.network(img1, img2)
+        flow, warp = self.warp_raw_img(img1, img2)
+        # shape = img1.shape
+        # img1, img2, rgb_mean = self.centralize(img1, img2)
+        # pred, occ_masks, warpeds = self.network(img1, img2)
 
-        flow = self.upsampler(pred[-1])
-        if shape[2] != flow.shape[2] or shape[3] != flow.shape[3]:
-            flow = nd.contrib.BilinearResize2D(flow, height=shape[2], width=shape[3]) * nd.array([shape[d] / flow.shape[d] for d in (2, 3)], ctx=flow.context).reshape((1, 2, 1, 1))
-        warp = self.reconstruction(img2, flow)
-        occ_masks = nd.stack(*occ_masks, axis=0)
+        # flow = self.upsampler(pred[-1])
+        # if shape[2] != flow.shape[2] or shape[3] != flow.shape[3]:
+        #     flow = nd.contrib.BilinearResize2D(flow, height=shape[2], width=shape[3]) * nd.array([shape[d] / flow.shape[d] for d in (2, 3)], ctx=flow.context).reshape((1, 2, 1, 1))
+        # warp = self.reconstruction(img2, flow)
         # warpeds = nd.stack(*warpeds, axis=0)
 
-        return flow, occ_masks[-1], warp, warpeds
+        return flow, warp
 
     def predict(self, img1, img2, batch_size, resize = None):
         r''' predict the whole dataset
@@ -300,18 +300,14 @@ class PipelineFlownet:
             ctx = self.ctx[ : min(len(batch_img1), len(self.ctx))]
             nd_img1, nd_img2 = map(lambda x : gluon.utils.split_and_load(x, ctx, even_split = False), (batch_img1, batch_img2))
             for img1s, img2s in zip(nd_img1, nd_img2):
-                img1s, img2s = img1s / 255.0, img2s / 255.0
-                flow, occ_mask, warped, _ = self.do_batch(img1s, img2s, resize = resize)
+                flow, warped = self.do_batch(img1s, img2s, resize = resize)
                 batch_flow.append(flow)
-                batch_occ_mask.append(occ_mask)
                 batch_warped.append(warped)
             flow = np.concatenate([x.asnumpy() for x in batch_flow])
-            occ_mask = np.concatenate([x.asnumpy() for x in batch_occ_mask])
             warped = np.concatenate([x.asnumpy() for x in batch_warped])
 
             flow = np.transpose(flow, (0, 2, 3, 1))
             flow = np.flip(flow, axis = -1)
-            occ_mask = np.transpose(occ_mask, (0, 2, 3, 1))
             warped = np.transpose(warped, (0, 2, 3, 1))
             for k in range(len(flow)):
-                yield flow[k], occ_mask[k], warped[k]
+                yield flow[k], warped[k]
