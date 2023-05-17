@@ -48,9 +48,12 @@ if cfg.predict or cfg.visualize or cfg.valid:
 	if cfg.predict:
 		import predict
 		checkpoint_name = os.path.basename(cfg.checkpoint).replace('.params', '')
-		metrics = predict.predict(pipe, predict_data, os.path.join(cfg.repoRoot, 'output', cfg.predict_fold, checkpoint_name), batch_size=cfg.batch, resize = cfg.infer_resize)
+		bd = os.path.join(cfg.repoRoot, 'output/pred', cfg.predict_fold,)
+		metrics = predict.predict(pipe, predict_data,  os.path.join(bd, checkpoint_name), batch_size=cfg.batch, resize = cfg.infer_resize)
 		# write to csv
-		save_path = os.path.join(cfg.repoRoot, 'output/pred', cfg.predict_fold, checkpoint_name+'.csv')
+		save_path = os.path.join(bd, checkpoint_name+'.csv')
+		# mkdir if not exist
+		configure.mkdir(os.path.dirname(save_path))
 		f = open(save_path, 'w')
 		f.write(','.join(metrics[0].keys())+'\n')
 		for case in metrics:
