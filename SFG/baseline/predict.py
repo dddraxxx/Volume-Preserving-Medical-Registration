@@ -9,7 +9,9 @@ from VP.vis_utilities import array_hist_image
 import mxnet as mx
 
 # PLEASE MODIFY the paths specified in sintel.py and kitti.py
-def predict_sintel_kitti(pipe, prefix, batch_size = 8, resize = None):
+
+
+def predict_sintel_kitti(pipe, prefix, batch_size=8, resize=None):
 
     sintel_resize = (448, 1024) if resize is None else resize
     sintel_dataset = sintel.list_data()
@@ -26,8 +28,9 @@ def predict_sintel_kitti(pipe, prefix, batch_size = 8, resize = None):
             output_folder = os.path.join(prefix, k)
             if not os.path.exists(output_folder):
                 os.mkdir(output_folder)
-            img1, img2 = [[sintel.load(p) for p in data] for data in list(zip(*dataset))[:2]]
-            for result, entry in zip(pipe.predict(img1, img2, batch_size = 1, resize = sintel_resize), dataset):
+            img1, img2 = [[sintel.load(p) for p in data]
+                          for data in list(zip(*dataset))[:2]]
+            for result, entry in zip(pipe.predict(img1, img2, batch_size=1, resize=sintel_resize), dataset):
                 flow, occ_mask, warped = result
                 img1 = entry[0]
                 fname = os.path.basename(img1)
@@ -35,8 +38,10 @@ def predict_sintel_kitti(pipe, prefix, batch_size = 8, resize = None):
                 seq_output_folder = os.path.join(output_folder, seq)
                 if not os.path.exists(seq_output_folder):
                     os.mkdir(seq_output_folder)
-                flo.save(flow, os.path.join(seq_output_folder, fname.replace('.png', '.flo')))
-                skimage.io.imsave(os.path.join(seq_output_folder, fname), np.clip(warped * 255, 0, 255).astype(np.uint8))
+                flo.save(flow, os.path.join(
+                    seq_output_folder, fname.replace('.png', '.flo')))
+                skimage.io.imsave(os.path.join(seq_output_folder, fname), np.clip(
+                    warped * 255, 0, 255).astype(np.uint8))
 
     '''
 	KITTI 2012:
@@ -47,7 +52,7 @@ def predict_sintel_kitti(pipe, prefix, batch_size = 8, resize = None):
 	'''
 
     kitti_resize = (512, 1152) if resize is None else resize
-    kitti_dataset = kitti.read_dataset_testing(resize = kitti_resize)
+    kitti_dataset = kitti.read_dataset_testing(resize=kitti_resize)
     prefix = prefix.replace('sintel', 'kitti')
     if not os.path.exists(prefix):
         os.mkdir(prefix)
@@ -60,7 +65,7 @@ def predict_sintel_kitti(pipe, prefix, batch_size = 8, resize = None):
         img1 = kitti_dataset[k]['image_0']
         img2 = kitti_dataset[k]['image_1']
         cnt = 0
-        for result in pipe.predict(img1, img2, batch_size = 1, resize = kitti_resize):
+        for result in pipe.predict(img1, img2, batch_size=1, resize=kitti_resize):
             flow, occ_mask, warped = result
             out_name = os.path.join(output_folder, '%06d_10.png' % cnt)
             cnt = cnt + 1
@@ -70,7 +75,8 @@ def predict_sintel_kitti(pipe, prefix, batch_size = 8, resize = None):
             pred[:, :, 1] = (64.0 * (flow[:, :, 1] + 512)).astype(np.uint16)
             cv2.imwrite(out_name, pred)
 
-def add_landmarks(img, lmk, color = (0, 0, 255)):
+
+def add_landmarks(img, lmk, color=(0, 0, 255)):
     img = img.copy()
     lmk = lmk.astype(np.int32)
     for i in range(lmk.shape[0]):
@@ -78,16 +84,8 @@ def add_landmarks(img, lmk, color = (0, 0, 255)):
         cv2.circle(img, (y, x), 3, color, -1)
     return img
 
-def eval_single(pipe, img1, warp, lmk1, lmk2, flow):
-    # convert np to ndarray
-    flow = np.flip(flow, axis = -1)
-    img1, warp, lmk1, lmk2, flow = [mx.nd.array(x, ctx=pipe.ctx[0])
-                                    for x in [img1, warp, lmk1, lmk2, flow]]
-    raw = pipe.raw_loss_op(img1, warp)
-    dist_loss_mean, warped_lmk, lmk2new = pipe.landmark_dist(lmk1[None], lmk2[None], [flow[None].transpose((0, 3, 1, 2))])
-    return raw, dist_loss_mean
 
-def predict(pipe, dataset, save_dir, batch_size=8, resize = None):
+def predict(pipe, dataset, save_dir, batch_size=8, resize=None):
     resize = (512, 512) if resize is None else resize
     prefix = save_dir
     if not os.path.exists(prefix):
@@ -101,20 +99,22 @@ def predict(pipe, dataset, save_dir, batch_size=8, resize = None):
     for i in range(0, len(dataset), batch_size):
         this_batch_size = min(batch_size, len(dataset) - i)
 
-        print("predicting on {} to {}".format(i, i + this_batch_size), end="\r", flush=True)
+        print("predicting on {} to {}".format(
+            i, i + this_batch_size), end="\r", flush=True)
         img1 = [dataset[k]['image_0'] for k in range(i, i + this_batch_size)]
         img2 = [dataset[k]['image_1'] for k in range(i, i + this_batch_size)]
         fids = [dataset[k]['fid'] for k in range(i, i + this_batch_size)]
         lmk1 = [dataset[k]['lmk_0'] for k in range(i, i + this_batch_size)]
         lmk2 = [dataset[k]['lmk_1'] for k in range(i, i + this_batch_size)]
 
-        for fid, result, j in zip(fids, pipe.predict(img1, img2, batch_size = batch_size, resize = resize), range(this_batch_size)):
+        for fid, result, j in zip(fids,
+                                  pipe.predict(img1, img2, batch_size=batch_size, resize=resize),
+                                  range(this_batch_size)):
             output_folder = os.path.join(prefix, fid)
             if not os.path.exists(output_folder):
                 os.mkdir(output_folder)
-            flow, occ_mask, warped = result
-            # eval metrics
-            raw_loss, dist_mean = eval_single(pipe, img1[j]/255.0, warped, lmk1[j], lmk2[j], flow)
+            flow, warped = result
+            raw_loss, dist_mean = pipe.eval_single(flow, warped, lmk1[j], lmk2[j], img1[j], img2[j])
             eval_metrics.append(
                 {
                     'fid': fid,
@@ -141,12 +141,13 @@ def predict(pipe, dataset, save_dir, batch_size=8, resize = None):
             }
             cnt = cnt + 1
 
-            for k,v in save_dict.items():
+            for k, v in save_dict.items():
                 cv2.imwrite(k, v)
         break
     return eval_metrics
 
-def visualize(pipe, dataset, save_dir='/home/hynx/regis/SFG/tmp', resize = None):
+
+def visualize(pipe, dataset, save_dir='/home/hynx/regis/SFG/tmp', resize=None):
     resize = (512, 512) if resize is None else resize
 
     if save_dir:
@@ -163,12 +164,12 @@ def visualize(pipe, dataset, save_dir='/home/hynx/regis/SFG/tmp', resize = None)
     img2 = [dataset[k]['image_1'] for k in range(len(dataset))]
     fids = [dataset[k]['fid'] for k in range(len(dataset))]
 
-    for fid, result in zip(fids, pipe.predict(img1, img2, batch_size = 8, resize = resize)):
+    for fid, result in zip(fids, pipe.predict(img1, img2, batch_size=8, resize=resize)):
         flow, occ_mask, warped = result
         print('processing {}'.format(fid))
 
         # to torch tensor
-        flow = flow.transpose(2,0,1)
+        flow = flow.transpose(2, 0, 1)
         rev_flow = reverse_flow(flow)
         rev_flow = torch.from_numpy(rev_flow)
         jac = vis_step(rev_flow).squeeze().numpy()
@@ -187,11 +188,13 @@ def visualize(pipe, dataset, save_dir='/home/hynx/regis/SFG/tmp', resize = None)
                 os.path.join(output_folder, f'{fid}_jac_hist.png'): jac_hist,
             }
 
-            for k,v in save_dict.items():
+            for k, v in save_dict.items():
                 cv2.imwrite(k, v)
-            import pdb; pdb.set_trace()
+            import pdb
+            pdb.set_trace()
 
         cnt = cnt + 1
+
 
 def vis_step(flow):
     jac = jacobian_det(flow)
