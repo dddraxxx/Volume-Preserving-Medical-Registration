@@ -153,6 +153,8 @@ class PipelineFlownet:
 			shape = nd.array(flows[0].shape[2: 4], ctx=flows[0].context)
 			lmk_mask = (1 - nd.prod(lmk1 == 0, axis=-1)) * (
 						1 - nd.prod(lmk2 == 0, axis=-1)) > 0.5
+			# lmk_mask = (1 - nd.prod(lmk1 == lmk1[0][199][0] * lmk1[0][199][1], axis=-1)) * (
+			# 			1 - nd.prod(lmk2 == lmk2[0][199][0] * lmk2[0][199][1], axis=-1)) > 0.5
 			for flow in flows:
 				batch_lmk = lmk1 / (nd.reshape(shape, (1, 1, 2)) - 1) * 2 - 1
 				batch_lmk = batch_lmk.transpose((0, 2, 1)).expand_dims(axis=3)
@@ -162,7 +164,8 @@ class PipelineFlownet:
 			lmk_dist = nd.mean(nd.sqrt(nd.sum(nd.square(warped_lmk - lmk2), axis=-1) * lmk_mask + 1e-5), axis=-1)
 			lmk_dist = lmk_dist/(np.sum(lmk_mask, axis=1)+1e-5)*200 # 消除当kp数目为0的时候的影响
 			lmk_dist = lmk_dist*(np.sum(lmk_mask, axis=1)!=0) # 消除当kp数目为0的时候的影响
-			return lmk_dist / (shape[0]*1.414), warped_lmk, lmk2
+			return lmk_dist, warped_lmk, lmk2
+			# return lmk_dist / (shape[0]*1.414), warped_lmk, lmk2
 		else:
 			return 0, [], []
 

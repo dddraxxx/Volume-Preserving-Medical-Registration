@@ -124,7 +124,7 @@ def LoadANHIR(prep_name, subsets = [""], data_path = r"/home/hynx/regis/SFG/data
                     train_groups[group].append(fimg)
 
             # If row is for evaluation
-            elif row[5] == 'evaluation':
+            if row[5] == 'evaluation':
                 fimg = str(num)+'_1.jpg'
                 flmk = str(num)+'_1.csv'
                 if fimg not in dataset:
