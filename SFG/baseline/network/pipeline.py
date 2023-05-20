@@ -1,3 +1,4 @@
+from typing import Union, Tuple, Iterator
 import mxnet as mx
 import numpy as np
 from mxnet import nd, gluon, autograd
@@ -122,20 +123,21 @@ class PipelineFlownet:
         return flow, warp
 
     def warp_raw_img(self, img1s, img2s):
-        img1s[...], img2s[...] = self.img_preproc(img1s, img2s)
+        # img1s[...], img2s[...] = self.img_preproc(img1s, img2s)
+        img1s, img2s = self.img_preproc(img1s, img2s)
         return self.net_infer(img1s, img2s)
 
-    def train_batch(self, dist_weight, img1, img2, color_aug, aug):
+    def train_batch(self, img1, img2, color_aug, aug):
         losses = []
         reg_losses = []
         raw_losses = []
         # dist_losses = []
         batch_size = img1.shape[0]
         img1, img2 = map(lambda x : gluon.utils.split_and_load(x, self.ctx), (img1, img2))
-        hsh = "".join(random.sample(string.ascii_letters + string.digits, 10))
         with autograd.record():
             for img1s, img2s in zip(img1, img2):
-                flow, warp = self.warp_raw_img(img1s, img2s)
+                img1s, img2s = self.img_preproc(img1s, img2s)
+                flow, warp = self.net_infer(img1s, img2s)
                 flows = []
                 flows.append(flow)
                 # dist_loss, warped_lmk, lmk2new = self.landmark_dist(lmk1, lmk2, flows)
@@ -243,7 +245,8 @@ class PipelineFlownet:
             ctx = self.ctx[: min(len(batch_data), len(self.ctx))]
             nd_data = [gluon.utils.split_and_load([record[i] for record in batch_data], ctx, even_split=False) for i in range(len(batch_data[0]))]
             for img1, img2, lmk1, lmk2 in zip(*nd_data):
-                flow, warp = self.warp_raw_img(img1, img2)
+                img1, img2 = self.img_preproc(img1, img2)
+                flow, warp = self.net_infer(img1, img2)
                 flows = []
                 flows.append(flow)
 
@@ -273,7 +276,7 @@ class PipelineFlownet:
         dist_loss_mean, warped_lmk, lmk2new = self.landmark_dist(lmk1[None], lmk2[None], [flow[None].transpose((0, 3, 1, 2))])
         return raw, dist_loss_mean
 
-    def predict(self, img1, img2, batch_size, resize = None):
+    def predict(self, img1, img2, batch_size, resize = None, ret_orig_warp=False)-> Iterator[Tuple[np.array, np.array]]:
         r''' predict the whole dataset
         '''
         size = len(img1)
@@ -288,22 +291,32 @@ class PipelineFlownet:
 
             batch_flow = []
             batch_warped = []
+            batch_true_warped = []
 
             ctx = self.ctx[ : min(len(batch_img1), len(self.ctx))]
             nd_img1, nd_img2 = map(lambda x : gluon.utils.split_and_load(x, ctx, even_split = False), data)
 
             for img1s, img2s in zip(nd_img1, nd_img2):
                 if resize:
-                    img1 = nd.contrib.BilinearResize2D(img1s, height=resize[0], width=resize[1])
-                    img2 = nd.contrib.BilinearResize2D(img2s, height=resize[0], width=resize[1])
-                flow, warped = self.warp_raw_img(img1, img2)
+                    img1s = nd.contrib.BilinearResize2D(img1s, height=resize[0], width=resize[1])
+                    img2s = nd.contrib.BilinearResize2D(img2s, height=resize[0], width=resize[1])
+                flow, warped = self.warp_raw_img(img1s, img2s)
                 batch_flow.append(flow)
                 batch_warped.append(warped)
 
+                true_warped = self.reconstruction(img2s, flow)
+                batch_true_warped.append(true_warped)
+
             flow = np.concatenate([x.asnumpy() for x in batch_flow])
             warped = np.concatenate([x.asnumpy() for x in batch_warped])
+            true_warped = np.concatenate([x.asnumpy() for x in batch_true_warped])
 
             flow = np.transpose(flow, (0, 2, 3, 1))
             # flow = np.flip(flow, axis = -1)
             warped = np.transpose(warped, (0, 2, 3, 1))
-            for k in range(len(flow)): yield flow[k], warped[k]
+            orig_warped = np.transpose(true_warped, (0, 2, 3, 1))
+            if ret_orig_warp:
+                for k in range(len(flow)): yield flow[k], warped[k], \
+                    orig_warped[k]
+            else:
+                for k in range(len(flow)): yield flow[k], warped[k]
