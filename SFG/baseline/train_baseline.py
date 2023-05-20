@@ -46,9 +46,39 @@ def validate():
     if dataset_cfg.dataset.value == "ANHIR":
         return pipe.validate(eval_data, batch_size = cfg.batch)
 
-if cfg.predict or cfg.visualize or cfg.valid:
+if cfg.predict or cfg.visualize or cfg.valid or cfg.inversion_test:
     if cfg.inversion_test:
-        import inv_test
+        import inv_test as T
+        img1, img2 = eval_data[0][:2]
+        # give it batch axis
+        img1, img2 = [img1.transpose(1,2,0)], [img2.transpose(1,2,0)]
+
+        flow, _, warped = next(pipe.predict(img1, img2, 1, ret_orig_warp=True))
+        warped = [warped]
+        rev_flow, _, rev_img2 = next(pipe.predict(img2, warped, 1, ret_orig_warp=True))
+        test = T.Test()
+        flow, rev_flow = flow[None].transpose(0,3,1,2), rev_flow[None].transpose(0,3,1,2)
+        vis_compose_flow = test.test(flow, rev_flow)
+        comp_flow = test.composite_flow(flow, rev_flow)
+
+        mx_img2 = mx.nd.array(img2[0].transpose(2,0,1)).as_in_context(mx.gpu())[None]
+        comp_warped = pipe.reconstruction(mx_img2, comp_flow).asnumpy()
+
+        # visualize the img of composite flow
+        img2, rev_img2 = img2[0].transpose(2,0,1), rev_img2.transpose(2,0,1)
+        import vis_utils as V
+        img_dict = {
+            'img2': img2,
+            'img1': img1[0].transpose(2,0,1),
+            'warp': warped[0].transpose(2,0,1),
+            'rev_img2': rev_img2,
+            'comp_flow': vis_compose_flow,
+            'comp_warped': comp_warped[0]
+        }
+        for k in img_dict:
+            img_k = V.arr2img(img_dict[k])
+            img_k.save('tmp/{}.png'.format(k))
+        breakpoint()
 
     if cfg.predict:
         import predict

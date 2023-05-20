@@ -19,6 +19,8 @@ def set_gpu():
     import subprocess
     GPU_ID = subprocess.getoutput('nvidia-smi --query-gpu=memory.free --format=csv,nounits,noheader | nl -v 0 | sort -nrk 2 | cut -f 1| head -n 1 | xargs')
     os.environ['CUDA_VISIBLE_DEVICES'] = GPU_ID
+
+def set_env():
     os.environ["MXNET_CUDNN_AUTOTUNE_DEFAULT"] = "0"
 
 # get parse args
@@ -55,6 +57,7 @@ def get_parse_args():
 
     # parser for volume-preserving
     parser.add_argument('--vp', action='store_true', help='Do volume-preserving')
+    parser.add_argument('-it', '--inversion_test', action='store_true', help='Do inversion test')
 
     args = parser.parse_args()
     return args
@@ -90,7 +93,9 @@ def setup_saving_dir(cfg):
 
 def setup_log(cfg):
     mode = 'validate_log' if cfg.valid else ''
-    return logger.FileLog(os.path.join(cfg.repoRoot, 'logs', 'debug' if cfg.debug else '', '{}.log'.format(cfg.run_id)))
+    log_path = os.path.join(cfg.repoRoot, 'logs', 'debug' if cfg.debug else '', '{}.log'.format(cfg.run_id))
+    print('Log file: {}'.format(log_path))
+    return logger.FileLog(log_path)
 
 #%% pipe setup
 def get_pipe(cfg, network_cfg, dataset_cfg):
@@ -202,7 +207,7 @@ def load_dataset(cfg, dataset_cfg):
                 "fid": "{}_{}".format(i, k),
                 "lmk_0": dataset[groups_pred[i][k][1]][:lmk_len],
                 "lmk_1": dataset[groups_pred[i][1-k][1]][:lmk_len],
-            }	for i in groups_pred for k in [0,1] if i in ["4", "04", "6", "06"]]
+            }	for i in groups_pred for k in [0,1] ]#if i in ["4", "04", "6", "06"]]
         else: predict_data = None
 
     else:
